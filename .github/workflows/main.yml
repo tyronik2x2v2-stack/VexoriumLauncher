@@ -1,122 +1,96 @@
-              private void LaunchGame()
-              {
-                  string nickname = _nicknameBox.Text.Trim();
 
-                  if (!GameInstall.IsValidNickname(nickname))
-                  {
-                      MessageBox.Show(
-                          this,
-                          "Введи никнейм длиной от 3 до 20 символов. Разрешены латинские буквы, цифры и []()$@._=.",
-                          "Проверь никнейм",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Warning);
+name: Build VEXORIUM Launcher
 
-                      _nicknameBox.Focus();
-                      return;
-                  }
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - '.github/workflows/main.yml'
+      - 'src/**'
 
-                  try
-                  {
-                      GameInstall.SaveNickname(nickname);
-                  }
-                  catch (Exception ex)
-                  {
-                      MessageBox.Show(
-                          this,
-                          "Не удалось сохранить никнейм:\n" + ex.Message,
-                          "Ошибка настроек",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Error);
-                      return;
-                  }
+permissions:
+  contents: write
 
-                  if (!GameInstall.IsGameFolder(_gamePath))
-                  {
-                      MessageBox.Show(
-                          this,
-                          "Сначала выбери папку, где находится gta_sa.exe.",
-                          "GTA San Andreas",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Warning);
-                      RefreshStatus();
-                      return;
-                  }
+jobs:
+  build-windows:
+    runs-on: windows-latest
 
-                  if (!GameInstall.HasSamp(_gamePath))
-                  {
-                      GameInstall.PromptForSampIfMissing(_gamePath, this);
-                      RefreshStatus();
-                      return;
-                  }
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-                  string sampPath = Path.Combine(_gamePath!, "samp.exe");
-
-                  try
-                  {
-                      Process.Start(new ProcessStartInfo
-                      {
-                          FileName = sampPath,
-                          Arguments = ServerAddress,
-                          WorkingDirectory = _gamePath!,
-                          UseShellExecute = true
-                      });
-                  }
-                  catch (Exception ex)
-                  {
-                      MessageBox.Show(
-                          this,
-                          "Не удалось запустить SA-MP:\n" + ex.Message,
-                          "Ошибка запуска",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Error);
-                  }
-              }
-          }
-          '@
-
-          Set-Content -Encoding utf8 -Path .\src\Program.cs -Value $sourceContent
-
-          $credits = @'
-          VEXORIUM ROLEPLAY — image credits
-          Images are retrieved from Unsplash at build time and embedded in the application.
-          '@
-          Set-Content -Encoding utf8 -Path .\src\Assets\PHOTO_CREDITS.txt -Value $credits
-
-          dotnet publish .\src\VexoriumLauncher.csproj `
-            --configuration Release `
-            --runtime win-x64 `
-            --self-contained true `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:EnableCompressionInSingleFile=true `
-            -p:DebugType=None `
-            -p:DebugSymbols=false `
-            -o .\PLAYER_BUILD
-
-          if (!(Test-Path .\PLAYER_BUILD\VexoriumLauncher.exe)) {
-            throw 'VexoriumLauncher.exe was not created.'
-          }
-
-          Write-Host 'VEXORIUM launcher build completed.'
-
-      - name: Upload launcher artifact
-        uses: actions/upload-artifact@v4
+      - name: Install .NET 8
+        uses: actions/setup-dotnet@v4
         with:
-          name: VexoriumLauncher-Windows-x64
-          path: PLAYER_BUILD/VexoriumLauncher.exe
-          if-no-files-found: error
-          retention-days: 14
+          dotnet-version: 8.0.x
 
-      - name: Publish launcher to GitHub Releases
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: launcher-build-${{ github.run_number }}-${{ github.run_attempt }}
-          name: "VEXORIUM Launcher #${{ github.run_number }}"
-          body: |
-            Автоматическая сборка VEXORIUM ROLEPLAY Launcher для Windows x64.
-            Файл: VexoriumLauncher.exe
-          files: PLAYER_BUILD/VexoriumLauncher.exe
-          fail_on_unmatched_files: true
-          draft: false
-          prerelease: false
-          make_latest: true
+      - name: Create and publish launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\src\Assets | Out-Null
+
+          # Встроенная иконка VEXORIUM; отдельная загрузка .ico не требуется.
+          $iconBase64 = @'
+          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
