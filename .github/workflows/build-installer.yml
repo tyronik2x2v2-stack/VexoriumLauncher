@@ -1,0 +1,155 @@
+
+name: Build VEXORIUM Setup
+
+on:
+  workflow_run:
+    workflows:
+      - Build VEXORIUM Launcher
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  build-installer:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+
+    steps:
+      - name: Download launcher from completed build
+        uses: actions/download-artifact@v4
+        with:
+          name: VexoriumLauncher-Windows-x64
+          path: bundle
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify launcher file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (!(Test-Path ".\bundle\VexoriumLauncher.exe")) {
+            throw "VexoriumLauncher.exe was not found in the build artifact."
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --yes --no-progress
+
+      - name: Create installer files
+        shell: pwsh
+        env:
+          SOURCE_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $info = @'
+          VEXORIUM ROLEPLAY
+
+          Этот установщик устанавливает лаунчер VEXORIUM ROLEPLAY.
+
+          GTA San Andreas в этот установщик не входит.
+          Для игры необходима собственная совместимая копия GTA San Andreas.
+
+          После установки запусти VEXORIUM ROLEPLAY, выбери папку игры
+          и следуй инструкциям лаунчера для настройки SA-MP.
+
+          Сервер:
+          ams-game-02.centnodes.net:40065
+          '@
+
+          Set-Content -Encoding utf8 -Path ".\installer-info.txt" -Value $info
+
+          $script = @'
+          #define MyAppName "VEXORIUM ROLEPLAY"
+
+          #ifndef MyAppVersion
+            #define MyAppVersion "1.0.0"
+          #endif
+
+          [Setup]
+          AppId={{A471E561-9A74-4FF0-A279-7D5F60841238}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher=VEXORIUM
+          DefaultDirName={localappdata}\Programs\VEXORIUM ROLEPLAY
+          DefaultGroupName=VEXORIUM ROLEPLAY
+          DisableProgramGroupPage=yes
+          InfoBeforeFile=installer-info.txt
+          OutputDir=output
+          OutputBaseFilename=VexoriumSetup
+          UninstallDisplayIcon={app}\VexoriumLauncher.exe
+          PrivilegesRequired=lowest
+          ArchitecturesAllowed=x64
+          ArchitecturesInstallIn64BitMode=x64
+          WizardStyle=modern
+          Compression=lzma2
+          SolidCompression=yes
+          SetupLogging=yes
+
+          [Tasks]
+          Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Дополнительные задачи:"; Flags: unchecked
+
+          [Files]
+          Source: "bundle\VexoriumLauncher.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "installer-info.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+          [Icons]
+          Name: "{autoprograms}\VEXORIUM ROLEPLAY"; Filename: "{app}\VexoriumLauncher.exe"
+          Name: "{autodesktop}\VEXORIUM ROLEPLAY"; Filename: "{app}\VexoriumLauncher.exe"; Tasks: desktopicon
+
+          [Run]
+          Filename: "{app}\VexoriumLauncher.exe"; Description: "Запустить VEXORIUM ROLEPLAY"; Flags: postinstall nowait skipifsilent
+
+          [Messages]
+          BeveledLabel=VEXORIUM ROLEPLAY
+          '@
+
+          Set-Content -Encoding utf8 -Path ".\VexoriumSetup.iss" -Value $script
+
+      - name: Compile Windows installer
+        shell: pwsh
+        env:
+          SOURCE_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+          $compiler = Join-Path $pf86 'Inno Setup 6\ISCC.exe'
+
+          if (!(Test-Path $compiler)) {
+            $compiler = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'
+          }
+
+          if (!(Test-Path $compiler)) {
+            throw "Inno Setup compiler ISCC.exe was not found."
+          }
+
+          $version = "1.0.$env:SOURCE_RUN_NUMBER"
+
+          & $compiler "/DMyAppVersion=$version" ".\VexoriumSetup.iss"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed."
+          }
+
+          if (!(Test-Path ".\output\VexoriumSetup.exe")) {
+            throw "VexoriumSetup.exe was not created."
+          }
+
+      - name: Publish setup to the same GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: launcher-build-${{ github.event.workflow_run.run_number }}-${{ github.event.workflow_run.run_attempt }}
+          name: "VEXORIUM Launcher #${{ github.event.workflow_run.run_number }}"
+          files: output/VexoriumSetup.exe
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          draft: false
+          prerelease: false
+          make_latest: true
