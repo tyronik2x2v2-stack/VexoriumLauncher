@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
+    paths:
+      - '.github/workflows/main.yml'
+      - 'src/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,16 +30,38 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path .\src\Assets | Out-Null
 
-          # Фотографии берутся с Unsplash и встраиваются в опубликованный EXE как ресурсы.
+          # Фотографии загружаются при сборке и встраиваются в EXE.
           $photos = @(
-            @{ Name = 'police.jpg'; Url = 'https://images.unsplash.com/photo-1693745200286-3b636b5f3bd6?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'; Credit = 'Paul Lichtblau / Unsplash — https://unsplash.com/photos/a-police-car-at-night-with-its-lights-on-1FS1aOEvalk' },
-            @{ Name = 'fbi.jpg'; Url = 'https://images.unsplash.com/photo-1644911608651-dacd9169b9a1?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'; Credit = 'Lam Duy Nguyen Ngoc / Unsplash — https://unsplash.com/es/fotos/un-suv-negro-conduciendo-por-una-calle-por-la-noche-dyxBicWPavo' },
-            @{ Name = 'autotheft.jpg'; Url = 'https://images.unsplash.com/photo-1604705528621-81b2755a320b?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'; Credit = 'Unsplash — https://unsplash.com/s/photos/supercar' }
+            @{
+              Name = 'police.jpg'
+              Url = 'https://images.unsplash.com/photo-1693745200286-3b636b5f3bd6?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'
+              Credit = 'Paul Lichtblau / Unsplash'
+            },
+            @{
+              Name = 'fbi.jpg'
+              Url = 'https://images.unsplash.com/photo-1644911608651-dacd9169b9a1?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'
+              Credit = 'Lam Duy Nguyen Ngoc / Unsplash'
+            },
+            @{
+              Name = 'autotheft.jpg'
+              Url = 'https://images.unsplash.com/photo-1604705528621-81b2755a320b?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'
+              Credit = 'Unsplash'
+            }
           )
+
           foreach ($photo in $photos) {
             $destination = Join-Path '.\src\Assets' $photo.Name
-            Invoke-WebRequest -Uri $photo.Url -OutFile $destination -Headers @{ 'User-Agent' = 'Mozilla/5.0 VexoriumLauncherBuild' } -TimeoutSec 60
-            if (!(Test-Path $destination) -or (Get-Item $destination).Length -lt 10000) { throw "Photo download failed or is too small: $($photo.Name)" }
+
+            Invoke-WebRequest `
+              -Uri $photo.Url `
+              -OutFile $destination `
+              -Headers @{ 'User-Agent' = 'Mozilla/5.0 VexoriumLauncherBuild' } `
+              -TimeoutSec 60
+
+            if (!(Test-Path $destination) -or (Get-Item $destination).Length -lt 10000) {
+              throw "Photo download failed or is too small: $($photo.Name)"
+            }
+
             Write-Host "Photo embedded: $($photo.Name)"
           }
 
@@ -58,6 +84,7 @@ jobs:
             </ItemGroup>
           </Project>
           '@
+
           Set-Content -Encoding utf8 -Path .\src\VexoriumLauncher.csproj -Value $projectContent
 
           $sourceContent = @'
@@ -104,11 +131,13 @@ jobs:
           internal static class GameInstall
           {
               private const string SampDownloadPage = "https://www.sa-mp.mp/downloads/";
-              // This installer URL is listed as a SA-MP client mirror on the official SA-MP downloads page.
               private const string SampInstallerUrl = "https://gta-multiplayer.cz/downloads/sa-mp-0.3.7-R5-2-MP-install.exe";
+
               private static readonly string ConfigDirectory = Path.Combine(
                   Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
+
               private static readonly string ConfigFile = Path.Combine(ConfigDirectory, "game-path.txt");
+
               public static string AvatarPath => Path.Combine(ConfigDirectory, "avatar.png");
 
               public static string? FindSavedPath()
@@ -122,6 +151,7 @@ jobs:
                       }
                   }
                   catch { }
+
                   return null;
               }
 
@@ -141,11 +171,15 @@ jobs:
                   };
 
                   if (dialog.ShowDialog() != DialogResult.OK) return null;
+
                   if (!IsGameFolder(dialog.SelectedPath))
                   {
                       MessageBox.Show(
                           "В выбранной папке не найден gta_sa.exe. Выберите именно папку GTA San Andreas.",
-                          "Папка игры не найдена", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                          "Папка игры не найдена",
+                          MessageBoxButtons.OK,
+                          MessageBoxIcon.Warning);
+
                       return null;
                   }
 
@@ -155,6 +189,7 @@ jobs:
                       File.WriteAllText(ConfigFile, dialog.SelectedPath);
                   }
                   catch { }
+
                   return dialog.SelectedPath;
               }
 
@@ -165,41 +200,77 @@ jobs:
                   DialogResult choice = MessageBox.Show(
                       owner,
                       "GTA San Andreas найдена, но SA-MP ещё не установлен.\n\n" +
-                      "Нажми «Да», и лаунчер сам скачает установщик SA-MP с зеркала, на которое ссылается официальный сайт SA-MP. Браузер открывать не нужно.\n\n" +
+                      "Нажми «Да», и лаунчер попробует скачать установщик SA-MP. Браузер открывать не нужно.\n\n" +
                       "После загрузки установщик запустится отдельно. В нём выбери ту же папку, где находится gta_sa.exe.",
                       "Установить SA-MP",
                       MessageBoxButtons.YesNo,
                       MessageBoxIcon.Information);
 
                   if (choice != DialogResult.Yes) return;
+
                   string? savedPath = gamePath;
-                  string downloadPath = Path.Combine(ConfigDirectory, "downloads", "sa-mp-0.3.7-R5-2-MP-install.exe");
+                  string downloadPath = Path.Combine(
+                      ConfigDirectory,
+                      "downloads",
+                      "sa-mp-0.3.7-R5-2-MP-install.exe");
+
                   try
                   {
                       Directory.CreateDirectory(Path.GetDirectoryName(downloadPath)!);
+
                       using var client = new HttpClient();
                       client.Timeout = TimeSpan.FromMinutes(3);
-                      using HttpResponseMessage response = await client.GetAsync(SampInstallerUrl, HttpCompletionOption.ResponseHeadersRead);
+
+                      using HttpResponseMessage response = await client.GetAsync(
+                          SampInstallerUrl,
+                          HttpCompletionOption.ResponseHeadersRead);
+
                       response.EnsureSuccessStatusCode();
+
                       await using (Stream remote = await response.Content.ReadAsStreamAsync())
-                      await using (var local = new FileStream(downloadPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                      await using (var local = new FileStream(
+                          downloadPath,
+                          FileMode.Create,
+                          FileAccess.Write,
+                          FileShare.None))
+                      {
                           await remote.CopyToAsync(local);
+                      }
 
                       var downloaded = new FileInfo(downloadPath);
-                      if (downloaded.Length < 5_000_000)
-                          throw new InvalidDataException("Загруженный установщик слишком маленький; файл удалён из-за проверки.");
 
-                      Process.Start(new ProcessStartInfo { FileName = downloadPath, WorkingDirectory = savedPath!, UseShellExecute = true });
-                      MessageBox.Show(owner,
+                      if (downloaded.Length < 5_000_000)
+                          throw new InvalidDataException(
+                              "Загруженный установщик слишком маленький; файл удалён из-за проверки.");
+
+                      Process.Start(new ProcessStartInfo
+                      {
+                          FileName = downloadPath,
+                          WorkingDirectory = savedPath!,
+                          UseShellExecute = true
+                      });
+
+                      MessageBox.Show(
+                          owner,
                           "Установщик SA-MP загружен и запущен. Заверши его установку в папку GTA San Andreas, затем вернись в лаунчер и нажми «Играть».",
-                          "SA-MP загружен", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                          "SA-MP загружен",
+                          MessageBoxButtons.OK,
+                          MessageBoxIcon.Information);
                   }
                   catch (Exception ex)
                   {
-                      try { if (File.Exists(downloadPath)) File.Delete(downloadPath); } catch { }
-                      MessageBox.Show(owner,
+                      try
+                      {
+                          if (File.Exists(downloadPath)) File.Delete(downloadPath);
+                      }
+                      catch { }
+
+                      MessageBox.Show(
+                          owner,
                           "Не удалось скачать или запустить установщик SA-MP. Проверь подключение к интернету.\n\n" + ex.Message,
-                          "Ошибка загрузки SA-MP", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                          "Ошибка загрузки SA-MP",
+                          MessageBoxButtons.OK,
+                          MessageBoxIcon.Error);
                   }
               }
           }
@@ -210,8 +281,11 @@ jobs:
               {
                   try
                   {
-                      using Stream? stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+                      using Stream? stream = Assembly.GetExecutingAssembly()
+                          .GetManifestResourceStream(resourceName);
+
                       if (stream is null) return null;
+
                       using var original = new Bitmap(stream);
                       return new Bitmap(original);
                   }
@@ -223,7 +297,10 @@ jobs:
                   try
                   {
                       if (!File.Exists(path)) return null;
-                      using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+                      using var stream = new FileStream(
+                          path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
                       using var original = new Bitmap(stream);
                       return new Bitmap(original);
                   }
@@ -242,27 +319,35 @@ jobs:
               protected override void OnPaint(PaintEventArgs e)
               {
                   e.Graphics.Clear(BackColor);
-                  if (Image is null || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+
+                  if (Image is null || ClientSize.Width <= 0 || ClientSize.Height <= 0)
+                      return;
 
                   float sourceAspect = (float)Image.Width / Image.Height;
                   float targetAspect = (float)ClientSize.Width / ClientSize.Height;
                   Rectangle source;
+
                   if (sourceAspect > targetAspect)
                   {
                       int cropWidth = Math.Max(1, (int)(Image.Height * targetAspect));
-                      source = new Rectangle((Image.Width - cropWidth) / 2, 0, cropWidth, Image.Height);
+                      source = new Rectangle(
+                          (Image.Width - cropWidth) / 2, 0, cropWidth, Image.Height);
                   }
                   else
                   {
                       int cropHeight = Math.Max(1, (int)(Image.Width / targetAspect));
-                      source = new Rectangle(0, (Image.Height - cropHeight) / 2, Image.Width, cropHeight);
+                      source = new Rectangle(
+                          0, (Image.Height - cropHeight) / 2, Image.Width, cropHeight);
                   }
 
                   e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
                   e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                  e.Graphics.DrawImage(Image,
+
+                  e.Graphics.DrawImage(
+                      Image,
                       new Rectangle(0, 0, ClientSize.Width, ClientSize.Height),
-                      source, GraphicsUnit.Pixel);
+                      source,
+                      GraphicsUnit.Pixel);
               }
           }
 
@@ -272,7 +357,13 @@ jobs:
 
               public AvatarPictureBox()
               {
-                  SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                  SetStyle(
+                      ControlStyles.AllPaintingInWmPaint |
+                      ControlStyles.UserPaint |
+                      ControlStyles.OptimizedDoubleBuffer |
+                      ControlStyles.ResizeRedraw,
+                      true);
+
                   Size = new Size(54, 54);
                   Cursor = Cursors.Hand;
                   BackColor = Color.FromArgb(30, 31, 40);
@@ -281,47 +372,73 @@ jobs:
               protected override void OnPaint(PaintEventArgs e)
               {
                   base.OnPaint(e);
+
                   Graphics g = e.Graphics;
                   g.SmoothingMode = SmoothingMode.AntiAlias;
-                  var circle = new Rectangle(2, 2, Math.Max(1, Width - 5), Math.Max(1, Height - 5));
+
+                  var circle = new Rectangle(
+                      2, 2, Math.Max(1, Width - 5), Math.Max(1, Height - 5));
+
                   using var clip = new GraphicsPath();
                   clip.AddEllipse(circle);
                   g.SetClip(clip);
-                  using (var gradient = new LinearGradientBrush(circle, Color.FromArgb(225, 39, 54), Color.FromArgb(80, 28, 47), 45f))
+
+                  using (var gradient = new LinearGradientBrush(
+                      circle,
+                      Color.FromArgb(225, 39, 54),
+                      Color.FromArgb(80, 28, 47),
+                      45f))
+                  {
                       g.FillEllipse(gradient, circle);
+                  }
 
                   if (AvatarImage != null)
                   {
-                      float aspect = (float)AvatarImage.Width / Math.Max(1, AvatarImage.Height);
+                      float aspect = (float)AvatarImage.Width /
+                          Math.Max(1, AvatarImage.Height);
+
                       Rectangle src;
+
                       if (aspect > 1f)
                       {
                           int w = Math.Max(1, (int)AvatarImage.Height);
-                          src = new Rectangle((AvatarImage.Width - w) / 2, 0, w, AvatarImage.Height);
+                          src = new Rectangle(
+                              (AvatarImage.Width - w) / 2, 0, w, AvatarImage.Height);
                       }
                       else
                       {
                           int h = Math.Max(1, (int)AvatarImage.Width);
-                          src = new Rectangle(0, (AvatarImage.Height - h) / 2, AvatarImage.Width, h);
+                          src = new Rectangle(
+                              0, (AvatarImage.Height - h) / 2, AvatarImage.Width, h);
                       }
+
                       g.DrawImage(AvatarImage, circle, src, GraphicsUnit.Pixel);
                   }
                   else
                   {
                       using var headBrush = new SolidBrush(Color.FromArgb(240, 243, 248));
                       using var bodyBrush = new SolidBrush(Color.FromArgb(210, 216, 226));
+
                       int headSize = Math.Max(10, Width / 4);
-                      g.FillEllipse(headBrush, Width / 2 - headSize / 2, Height / 4, headSize, headSize);
-                      var shoulders = new Rectangle(Width / 4, Height / 2 + 5, Width / 2, Height / 2);
-                      g.FillEllipse(bodyBrush, shoulders);
-                      using var initialsFont = new Font("Segoe UI", 8F, FontStyle.Bold);
-                      using var shadow = new SolidBrush(Color.FromArgb(160, 10, 10, 15));
-                      g.FillEllipse(shadow, circle);
-                      g.FillEllipse(headBrush, Width / 2 - headSize / 2, Height / 4, headSize, headSize);
+
+                      g.FillEllipse(
+                          headBrush,
+                          Width / 2 - headSize / 2,
+                          Height / 4,
+                          headSize,
+                          headSize);
+
+                      var shoulders = new Rectangle(
+                          Width / 4, Height / 2 + 5, Width / 2, Height / 2);
+
                       g.FillEllipse(bodyBrush, shoulders);
                   }
+
                   g.ResetClip();
-                  using var border = new Pen(Color.FromArgb(245, 225, 39, 54), 2.2f);
+
+                  using var border = new Pen(
+                      Color.FromArgb(245, 225, 39, 54), 2.2f);
+
                   g.DrawEllipse(border, circle);
               }
           }
@@ -329,6 +446,7 @@ jobs:
           internal sealed class LauncherForm : Form
           {
               private const string ServerAddress = "ams-game-02.centnodes.net:40065";
+
               private string? _gamePath;
               private readonly Label _gameStatus;
               private readonly Button _playButton;
@@ -365,6 +483,7 @@ jobs:
                       BackColor = HeaderColor,
                       Padding = new Padding(24, 10, 24, 10)
                   };
+
                   Controls.Add(header);
 
                   var brand = new Label
@@ -376,6 +495,7 @@ jobs:
                       Location = new Point(24, 7),
                       BackColor = HeaderColor
                   };
+
                   var rolePlay = new Label
                   {
                       AutoSize = true,
@@ -385,6 +505,7 @@ jobs:
                       Location = new Point(29, 55),
                       BackColor = HeaderColor
                   };
+
                   var serverLabel = new Label
                   {
                       AutoSize = true,
@@ -394,6 +515,7 @@ jobs:
                       Anchor = AnchorStyles.Top | AnchorStyles.Right,
                       BackColor = HeaderColor
                   };
+
                   var profilePanel = new Panel
                   {
                       Size = new Size(190, 66),
@@ -401,9 +523,12 @@ jobs:
                       Anchor = AnchorStyles.Top | AnchorStyles.Right,
                       Cursor = Cursors.Hand
                   };
+
                   _avatar = new AvatarPictureBox { Location = new Point(0, 6) };
+
                   Image? savedAvatar = LauncherImages.LoadFile(GameInstall.AvatarPath);
                   if (savedAvatar != null) _avatar.AvatarImage = savedAvatar;
+
                   var profileName = new Label
                   {
                       AutoSize = true,
@@ -414,6 +539,7 @@ jobs:
                       BackColor = HeaderColor,
                       Cursor = Cursors.Hand
                   };
+
                   var profileHint = new Label
                   {
                       AutoSize = true,
@@ -424,22 +550,30 @@ jobs:
                       BackColor = HeaderColor,
                       Cursor = Cursors.Hand
                   };
+
                   profilePanel.Controls.Add(_avatar);
                   profilePanel.Controls.Add(profileName);
                   profilePanel.Controls.Add(profileHint);
+
                   header.Controls.Add(brand);
                   header.Controls.Add(rolePlay);
                   header.Controls.Add(serverLabel);
                   header.Controls.Add(profilePanel);
+
                   _avatar.Click += (_, _) => ChangeAvatar();
                   profileName.Click += (_, _) => ChangeAvatar();
                   profileHint.Click += (_, _) => ChangeAvatar();
                   profilePanel.Click += (_, _) => ChangeAvatar();
+
                   void PlaceHeaderRightItems()
                   {
-                      profilePanel.Location = new Point(Math.Max(0, header.ClientSize.Width - profilePanel.Width - 22), 8);
-                      serverLabel.Location = new Point(Math.Max(300, profilePanel.Left - serverLabel.Width - 26), 33);
+                      profilePanel.Location = new Point(
+                          Math.Max(0, header.ClientSize.Width - profilePanel.Width - 22), 8);
+
+                      serverLabel.Location = new Point(
+                          Math.Max(300, profilePanel.Left - serverLabel.Width - 26), 33);
                   }
+
                   header.Resize += (_, _) => PlaceHeaderRightItems();
                   PlaceHeaderRightItems();
 
@@ -450,6 +584,7 @@ jobs:
                       Padding = new Padding(22, 17, 22, 15),
                       AutoScroll = true
                   };
+
                   Controls.Add(_contentPanel);
                   header.BringToFront();
 
@@ -464,11 +599,16 @@ jobs:
                       BackColor = BackgroundColor,
                       GrowStyle = TableLayoutPanelGrowStyle.FixedSize
                   };
+
                   _mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
                   int[] rowHeights = { 52, 33, 40, 205, 92, 83, 31 };
+
                   _mainLayout.Height = 536;
+
                   foreach (int height in rowHeights)
                       _mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+
                   _contentPanel.Controls.Add(_mainLayout);
 
                   var welcome = new Label
@@ -482,6 +622,7 @@ jobs:
                       Margin = Padding.Empty,
                       AutoEllipsis = true
                   };
+
                   var subtitle = new Label
                   {
                       Dock = DockStyle.Fill,
@@ -492,6 +633,7 @@ jobs:
                       Margin = Padding.Empty,
                       AutoEllipsis = true
                   };
+
                   var newsTitle = new Label
                   {
                       Dock = DockStyle.Fill,
@@ -513,13 +655,23 @@ jobs:
                       Padding = Padding.Empty,
                       GrowStyle = TableLayoutPanelGrowStyle.FixedSize
                   };
+
                   _newsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
                   _newsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
                   _newsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.334F));
                   _newsGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-                  _newsGrid.Controls.Add(NewsCard("ПОЛИЦИЯ", "Обновления службы и патрулирования", "VexoriumLauncher.Assets.police.jpg", 0), 0, 0);
-                  _newsGrid.Controls.Add(NewsCard("FBI", "Новое оснащение спецподразделения", "VexoriumLauncher.Assets.fbi.jpg", 1), 1, 0);
-                  _newsGrid.Controls.Add(NewsCard("АВТОУГОН", "Новая работа для жителей города", "VexoriumLauncher.Assets.autotheft.jpg", 2), 2, 0);
+
+                  _newsGrid.Controls.Add(
+                      NewsCard("ПОЛИЦИЯ", "Обновления службы и патрулирования",
+                      "VexoriumLauncher.Assets.police.jpg", 0), 0, 0);
+
+                  _newsGrid.Controls.Add(
+                      NewsCard("FBI", "Новое оснащение спецподразделения",
+                      "VexoriumLauncher.Assets.fbi.jpg", 1), 1, 0);
+
+                  _newsGrid.Controls.Add(
+                      NewsCard("АВТОУГОН", "Новая работа для жителей города",
+                      "VexoriumLauncher.Assets.autotheft.jpg", 2), 2, 0);
 
                   var info = new Panel
                   {
@@ -528,6 +680,7 @@ jobs:
                       Padding = new Padding(15, 8, 15, 7),
                       Margin = Padding.Empty
                   };
+
                   var infoTitle = new Label
                   {
                       Dock = DockStyle.Top,
@@ -538,6 +691,7 @@ jobs:
                       BackColor = PanelColor,
                       Margin = Padding.Empty
                   };
+
                   _gameStatus = new Label
                   {
                       Dock = DockStyle.Fill,
@@ -548,6 +702,7 @@ jobs:
                       Margin = Padding.Empty,
                       AutoEllipsis = true
                   };
+
                   info.Controls.Add(_gameStatus);
                   info.Controls.Add(infoTitle);
 
@@ -561,15 +716,21 @@ jobs:
                       Padding = new Padding(0, 9, 0, 0),
                       Margin = Padding.Empty
                   };
+
                   _playButton = MakeButton("▶  ИГРАТЬ", Red, White, 178);
                   _playButton.Click += (_, _) => LaunchGame();
+
                   var chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", PanelColor, White, 207);
                   chooseButton.Click += (_, _) => ChooseGameFolder();
+
                   var siteButton = MakeButton("НАШ САЙТ", PanelColor, White, 160);
                   siteButton.Click += (_, _) => MessageBox.Show(
                       this,
                       "Сайт VEXORIUM ROLEPLAY пока в разработке. Позже добавим сюда прямую ссылку.",
-                      "Сайт VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                      "Сайт VEXORIUM",
+                      MessageBoxButtons.OK,
+                      MessageBoxIcon.Information);
+
                   buttons.Controls.Add(_playButton);
                   buttons.Controls.Add(chooseButton);
                   buttons.Controls.Add(siteButton);
@@ -594,11 +755,13 @@ jobs:
                   _mainLayout.Controls.Add(footer, 0, 6);
 
                   _contentPanel.Resize += (_, _) => ResizeMainLayout();
+
                   ResizeMainLayout();
                   RefreshStatus();
               }
 
-              private static Control NewsCard(string title, string description, string imageResource, int index)
+              private static Control NewsCard(
+                  string title, string description, string imageResource, int index)
               {
                   var panel = new Panel
                   {
@@ -607,6 +770,7 @@ jobs:
                       Margin = new Padding(0, 0, index == 2 ? 0 : 12, 0),
                       Padding = Padding.Empty
                   };
+
                   var photo = new CoverPictureBox
                   {
                       Dock = DockStyle.Top,
@@ -615,6 +779,7 @@ jobs:
                       Image = LauncherImages.Load(imageResource),
                       Margin = Padding.Empty
                   };
+
                   var heading = new Label
                   {
                       Dock = DockStyle.Top,
@@ -627,6 +792,7 @@ jobs:
                       AutoEllipsis = true,
                       Margin = Padding.Empty
                   };
+
                   var desc = new Label
                   {
                       Dock = DockStyle.Fill,
@@ -638,18 +804,27 @@ jobs:
                       AutoEllipsis = true,
                       Margin = Padding.Empty
                   };
+
                   panel.Controls.Add(desc);
                   panel.Controls.Add(heading);
                   panel.Controls.Add(photo);
+
                   return panel;
               }
 
               private void ResizeMainLayout()
               {
                   if (_contentPanel.IsDisposed) return;
-                  int scrollWidth = _contentPanel.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
-                  _mainLayout.Width = Math.Max(300,
-                      _contentPanel.ClientSize.Width - _contentPanel.Padding.Horizontal - scrollWidth);
+
+                  int scrollWidth = _contentPanel.VerticalScroll.Visible
+                      ? SystemInformation.VerticalScrollBarWidth
+                      : 0;
+
+                  _mainLayout.Width = Math.Max(
+                      300,
+                      _contentPanel.ClientSize.Width -
+                      _contentPanel.Padding.Horizontal -
+                      scrollWidth);
               }
 
               private Button MakeButton(string text, Color back, Color fore, int width)
@@ -668,14 +843,17 @@ jobs:
                       Cursor = Cursors.Hand,
                       TextAlign = ContentAlignment.MiddleCenter
                   };
+
                   button.FlatAppearance.BorderColor = Color.FromArgb(61, 62, 73);
                   button.FlatAppearance.BorderSize = 1;
                   button.FlatAppearance.MouseOverBackColor = Color.FromArgb(45, 46, 56);
+
                   if (back == Red)
                   {
                       button.FlatAppearance.BorderSize = 0;
                       button.FlatAppearance.MouseOverBackColor = Color.FromArgb(245, 48, 63);
                   }
+
                   return button;
               }
 
@@ -688,15 +866,25 @@ jobs:
                       CheckFileExists = true,
                       Multiselect = false
                   };
+
                   if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
                   try
                   {
                       using var source = Image.FromFile(dialog.FileName);
                       using var bitmap = new Bitmap(source);
-                      Directory.CreateDirectory(Path.GetDirectoryName(GameInstall.AvatarPath)!);
+
+                      Directory.CreateDirectory(
+                          Path.GetDirectoryName(GameInstall.AvatarPath)!);
+
                       bitmap.Save(GameInstall.AvatarPath, ImageFormat.Png);
+
                       Image? newAvatar = LauncherImages.LoadFile(GameInstall.AvatarPath);
-                      if (newAvatar is null) throw new InvalidDataException("Не удалось открыть выбранное изображение.");
+
+                      if (newAvatar is null)
+                          throw new InvalidDataException(
+                              "Не удалось открыть выбранное изображение.");
+
                       Image? oldAvatar = _avatar.AvatarImage;
                       _avatar.AvatarImage = newAvatar;
                       _avatar.Invalidate();
@@ -704,8 +892,12 @@ jobs:
                   }
                   catch (Exception ex)
                   {
-                      MessageBox.Show(this, "Не удалось установить аватар:\n" + ex.Message,
-                          "Аватар VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      MessageBox.Show(
+                          this,
+                          "Не удалось установить аватар:\n" + ex.Message,
+                          "Аватар VEXORIUM",
+                          MessageBoxButtons.OK,
+                          MessageBoxIcon.Error);
                   }
               }
 
@@ -713,8 +905,10 @@ jobs:
               {
                   if (!GameInstall.IsGameFolder(_gamePath))
                       return "Папка GTA San Andreas не выбрана. Нажми «Выбрать папку GTA».";
+
                   if (!GameInstall.HasSamp(_gamePath))
                       return "GTA найдена, но SA-MP не установлен. Нажми «Играть» для инструкции по установке.";
+
                   return "GTA San Andreas и SA-MP найдены. Можно подключаться к серверу.";
               }
 
@@ -722,16 +916,23 @@ jobs:
               {
                   _gameStatus.Text = StatusText();
                   _playButton.Enabled = GameInstall.IsGameFolder(_gamePath);
-                  _playButton.BackColor = _playButton.Enabled ? Red : Color.FromArgb(88, 34, 41);
+
+                  _playButton.BackColor = _playButton.Enabled
+                      ? Red
+                      : Color.FromArgb(88, 34, 41);
               }
 
               private void ChooseGameFolder()
               {
                   string? selected = GameInstall.PickGameFolder();
+
                   if (string.IsNullOrWhiteSpace(selected)) return;
+
                   _gamePath = selected;
                   RefreshStatus();
+
                   GameInstall.PromptForSampIfMissing(_gamePath, this);
+
                   RefreshStatus();
               }
 
@@ -739,8 +940,13 @@ jobs:
               {
                   if (!GameInstall.IsGameFolder(_gamePath))
                   {
-                      MessageBox.Show(this, "Сначала выбери папку, где находится gta_sa.exe.",
-                          "GTA San Andreas", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      MessageBox.Show(
+                          this,
+                          "Сначала выбери папку, где находится gta_sa.exe.",
+                          "GTA San Andreas",
+                          MessageBoxButtons.OK,
+                          MessageBoxIcon.Warning);
+
                       RefreshStatus();
                       return;
                   }
@@ -753,6 +959,7 @@ jobs:
                   }
 
                   string sampPath = Path.Combine(_gamePath!, "samp.exe");
+
                   try
                   {
                       Process.Start(new ProcessStartInfo
@@ -765,32 +972,71 @@ jobs:
                   }
                   catch (Exception ex)
                   {
-                      MessageBox.Show(this, "Не удалось запустить SA-MP:\n" + ex.Message,
-                          "Ошибка запуска", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      MessageBox.Show(
+                          this,
+                          "Не удалось запустить SA-MP:\n" + ex.Message,
+                          "Ошибка запуска",
+                          MessageBoxButtons.OK,
+                          MessageBoxIcon.Error);
                   }
               }
           }
           '@
+
           Set-Content -Encoding utf8 -Path .\src\Program.cs -Value $sourceContent
 
           $credits = @'
           VEXORIUM ROLEPLAY — image credits
-          - Police image: Paul Lichtblau / Unsplash, https://unsplash.com/photos/a-police-car-at-night-with-its-lights-on-1FS1aOEvalk
-          - SUV image: Unsplash, https://unsplash.com/es/fotos/un-suv-negro-conduciendo-por-una-calle-por-la-noche-dyxBicWPavo
-          - Sport car image: Unsplash, https://unsplash.com/s/photos/supercar
+          - Police image: Paul Lichtblau / Unsplash
+          - SUV image: Unsplash
+          - Sport car image: Unsplash
           The images are retrieved by the GitHub Actions workflow at build time and embedded in the application.
           '@
+
           Set-Content -Encoding utf8 -Path .\src\Assets\PHOTO_CREDITS.txt -Value $credits
 
-          dotnet publish .\src\VexoriumLauncher.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\PLAYER_BUILD
-          if (!(Test-Path .\PLAYER_BUILD\VexoriumLauncher.exe)) { throw 'VexoriumLauncher.exe was not created.' }
+          dotnet publish .\src\VexoriumLauncher.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o .\PLAYER_BUILD
+
+          if (!(Test-Path .\PLAYER_BUILD\VexoriumLauncher.exe)) {
+            throw 'VexoriumLauncher.exe was not created.'
+          }
+
           Write-Host 'VEXORIUM launcher build completed.'
 
-
-      - name: Upload launcher EXE
+      # Сохраняем артефакт Actions как дополнительную копию.
+      - name: Upload launcher EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: VexoriumLauncher-Windows-x64
           path: PLAYER_BUILD/VexoriumLauncher.exe
           if-no-files-found: error
           retention-days: 14
+
+      # Публикуем готовый EXE в релизе, чтобы сайт скачивал актуальный файл.
+      - name: Publish launcher to GitHub Releases
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: launcher-build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: VEXORIUM Launcher #${{ github.run_number }}
+          body: |
+            Автоматическая сборка VEXORIUM ROLEPLAY Launcher.
+
+            Файл для Windows x64:
+            VexoriumLauncher.exe
+
+            Новые успешные сборки публикуются в отдельном релизе.
+            На сайте используется ссылка на последний опубликованный релиз.
+          files: PLAYER_BUILD/VexoriumLauncher.exe
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          make_latest: true
