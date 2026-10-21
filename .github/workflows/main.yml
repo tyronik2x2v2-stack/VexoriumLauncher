@@ -104,10 +104,12 @@ jobs:
           internal static class GameInstall
           {
               private const string SampDownloadPage = "https://www.sa-mp.mp/downloads/";
+              // This installer URL is listed as a SA-MP client mirror on the official SA-MP downloads page.
+              private const string SampInstallerUrl = "https://gta-multiplayer.cz/downloads/sa-mp-0.3.7-R5-2-MP-install.exe";
               private static readonly string ConfigDirectory = Path.Combine(
                   Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
               private static readonly string ConfigFile = Path.Combine(ConfigDirectory, "game-path.txt");
-          public static string AvatarPath => Path.Combine(ConfigDirectory, "avatar.png");
+              public static string AvatarPath => Path.Combine(ConfigDirectory, "avatar.png");
 
               public static string? FindSavedPath()
               {
