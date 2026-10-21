@@ -67,6 +67,8 @@ jobs:
           using System.Drawing.Drawing2D;
           using System.IO;
           using System.Reflection;
+          using System.Drawing.Imaging;
+          using System.Net.Http;
           using System.Windows.Forms;
 
           namespace VexoriumLauncher;
@@ -105,6 +107,7 @@ jobs:
               private static readonly string ConfigDirectory = Path.Combine(
                   Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
               private static readonly string ConfigFile = Path.Combine(ConfigDirectory, "game-path.txt");
+          public static string AvatarPath => Path.Combine(ConfigDirectory, "avatar.png");
 
               public static string? FindSavedPath()
               {
@@ -153,29 +156,48 @@ jobs:
                   return dialog.SelectedPath;
               }
 
-              public static void PromptForSampIfMissing(string? gamePath, IWin32Window? owner)
+              public static async void PromptForSampIfMissing(string? gamePath, IWin32Window? owner)
               {
                   if (!IsGameFolder(gamePath) || HasSamp(gamePath)) return;
 
                   DialogResult choice = MessageBox.Show(
                       owner,
-                      "GTA San Andreas найдена, но samp.exe отсутствует.\n\n" +
-                      "Нажмите «Да», чтобы открыть официальный сайт SA-MP и самостоятельно скачать установщик. " +
-                      "При установке укажите ту же папку, где находится gta_sa.exe. После установки вернитесь в VEXORIUM и нажмите «Играть».\n\n" +
-                      "Лаунчер не устанавливает сторонние файлы без вашего согласия.",
-                      "SA-MP не найден — требуется установка",
+                      "GTA San Andreas найдена, но SA-MP ещё не установлен.\n\n" +
+                      "Нажми «Да», и лаунчер сам скачает установщик SA-MP с зеркала, на которое ссылается официальный сайт SA-MP. Браузер открывать не нужно.\n\n" +
+                      "После загрузки установщик запустится отдельно. В нём выбери ту же папку, где находится gta_sa.exe.",
+                      "Установить SA-MP",
                       MessageBoxButtons.YesNo,
                       MessageBoxIcon.Information);
 
                   if (choice != DialogResult.Yes) return;
+                  string? savedPath = gamePath;
+                  string downloadPath = Path.Combine(ConfigDirectory, "downloads", "sa-mp-0.3.7-R5-2-MP-install.exe");
                   try
                   {
-                      Process.Start(new ProcessStartInfo { FileName = SampDownloadPage, UseShellExecute = true });
+                      Directory.CreateDirectory(Path.GetDirectoryName(downloadPath)!);
+                      using var client = new HttpClient();
+                      client.Timeout = TimeSpan.FromMinutes(3);
+                      using HttpResponseMessage response = await client.GetAsync(SampInstallerUrl, HttpCompletionOption.ResponseHeadersRead);
+                      response.EnsureSuccessStatusCode();
+                      await using (Stream remote = await response.Content.ReadAsStreamAsync())
+                      await using (var local = new FileStream(downloadPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                          await remote.CopyToAsync(local);
+
+                      var downloaded = new FileInfo(downloadPath);
+                      if (downloaded.Length < 5_000_000)
+                          throw new InvalidDataException("Загруженный установщик слишком маленький; файл удалён из-за проверки.");
+
+                      Process.Start(new ProcessStartInfo { FileName = downloadPath, WorkingDirectory = savedPath!, UseShellExecute = true });
+                      MessageBox.Show(owner,
+                          "Установщик SA-MP загружен и запущен. Заверши его установку в папку GTA San Andreas, затем вернись в лаунчер и нажми «Играть».",
+                          "SA-MP загружен", MessageBoxButtons.OK, MessageBoxIcon.Information);
                   }
                   catch (Exception ex)
                   {
-                      MessageBox.Show(owner, "Не удалось открыть сайт SA-MP:\n" + ex.Message,
-                          "Ошибка открытия сайта", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      try { if (File.Exists(downloadPath)) File.Delete(downloadPath); } catch { }
+                      MessageBox.Show(owner,
+                          "Не удалось скачать или запустить установщик SA-MP. Проверь подключение к интернету.\n\n" + ex.Message,
+                          "Ошибка загрузки SA-MP", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
               }
           }
@@ -188,6 +210,18 @@ jobs:
                   {
                       using Stream? stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
                       if (stream is null) return null;
+                      using var original = new Bitmap(stream);
+                      return new Bitmap(original);
+                  }
+                  catch { return null; }
+              }
+
+              public static Image? LoadFile(string path)
+              {
+                  try
+                  {
+                      if (!File.Exists(path)) return null;
+                      using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                       using var original = new Bitmap(stream);
                       return new Bitmap(original);
                   }
@@ -230,22 +264,83 @@ jobs:
               }
           }
 
+          internal sealed class AvatarPictureBox : Control
+          {
+              public Image? AvatarImage { get; set; }
+
+              public AvatarPictureBox()
+              {
+                  SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                  Size = new Size(54, 54);
+                  Cursor = Cursors.Hand;
+                  BackColor = Color.FromArgb(30, 31, 40);
+              }
+
+              protected override void OnPaint(PaintEventArgs e)
+              {
+                  base.OnPaint(e);
+                  Graphics g = e.Graphics;
+                  g.SmoothingMode = SmoothingMode.AntiAlias;
+                  var circle = new Rectangle(2, 2, Math.Max(1, Width - 5), Math.Max(1, Height - 5));
+                  using var clip = new GraphicsPath();
+                  clip.AddEllipse(circle);
+                  g.SetClip(clip);
+                  using (var gradient = new LinearGradientBrush(circle, Color.FromArgb(225, 39, 54), Color.FromArgb(80, 28, 47), 45f))
+                      g.FillEllipse(gradient, circle);
+
+                  if (AvatarImage != null)
+                  {
+                      float aspect = (float)AvatarImage.Width / Math.Max(1, AvatarImage.Height);
+                      Rectangle src;
+                      if (aspect > 1f)
+                      {
+                          int w = Math.Max(1, (int)AvatarImage.Height);
+                          src = new Rectangle((AvatarImage.Width - w) / 2, 0, w, AvatarImage.Height);
+                      }
+                      else
+                      {
+                          int h = Math.Max(1, (int)AvatarImage.Width);
+                          src = new Rectangle(0, (AvatarImage.Height - h) / 2, AvatarImage.Width, h);
+                      }
+                      g.DrawImage(AvatarImage, circle, src, GraphicsUnit.Pixel);
+                  }
+                  else
+                  {
+                      using var headBrush = new SolidBrush(Color.FromArgb(240, 243, 248));
+                      using var bodyBrush = new SolidBrush(Color.FromArgb(210, 216, 226));
+                      int headSize = Math.Max(10, Width / 4);
+                      g.FillEllipse(headBrush, Width / 2 - headSize / 2, Height / 4, headSize, headSize);
+                      var shoulders = new Rectangle(Width / 4, Height / 2 + 5, Width / 2, Height / 2);
+                      g.FillEllipse(bodyBrush, shoulders);
+                      using var initialsFont = new Font("Segoe UI", 8F, FontStyle.Bold);
+                      using var shadow = new SolidBrush(Color.FromArgb(160, 10, 10, 15));
+                      g.FillEllipse(shadow, circle);
+                      g.FillEllipse(headBrush, Width / 2 - headSize / 2, Height / 4, headSize, headSize);
+                      g.FillEllipse(bodyBrush, shoulders);
+                  }
+                  g.ResetClip();
+                  using var border = new Pen(Color.FromArgb(245, 225, 39, 54), 2.2f);
+                  g.DrawEllipse(border, circle);
+              }
+          }
+
           internal sealed class LauncherForm : Form
           {
               private const string ServerAddress = "ams-game-02.centnodes.net:40065";
               private string? _gamePath;
               private readonly Label _gameStatus;
               private readonly Button _playButton;
+              private readonly AvatarPictureBox _avatar;
               private readonly TableLayoutPanel _mainLayout;
               private readonly Panel _contentPanel;
               private readonly TableLayoutPanel _newsGrid;
 
-              private static readonly Color BackgroundColor = Color.FromArgb(15, 16, 21);
-              private static readonly Color HeaderColor = Color.FromArgb(21, 22, 29);
-              private static readonly Color PanelColor = Color.FromArgb(29, 30, 38);
-              private static readonly Color Red = Color.FromArgb(225, 39, 54);
-              private static readonly Color White = Color.FromArgb(246, 246, 249);
-              private static readonly Color Muted = Color.FromArgb(166, 169, 180);
+              private static readonly Color BackgroundColor = Color.FromArgb(13, 14, 20);
+              private static readonly Color HeaderColor = Color.FromArgb(20, 21, 30);
+              private static readonly Color PanelColor = Color.FromArgb(27, 29, 40);
+              private static readonly Color Red = Color.FromArgb(239, 45, 62);
+              private static readonly Color White = Color.FromArgb(248, 249, 252);
+              private static readonly Color Muted = Color.FromArgb(166, 172, 187);
 
               public LauncherForm(string? gamePath)
               {
@@ -254,8 +349,8 @@ jobs:
                   Text = "VEXORIUM ROLEPLAY";
                   StartPosition = FormStartPosition.CenterScreen;
                   AutoScaleMode = AutoScaleMode.Dpi;
-                  MinimumSize = new Size(790, 625);
-                  ClientSize = new Size(1080, 760);
+                  MinimumSize = new Size(900, 690);
+                  ClientSize = new Size(1140, 820);
                   BackColor = BackgroundColor;
                   ForeColor = White;
                   Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
@@ -264,7 +359,7 @@ jobs:
                   var header = new Panel
                   {
                       Dock = DockStyle.Top,
-                      Height = 88,
+                      Height = 92,
                       BackColor = HeaderColor,
                       Padding = new Padding(24, 10, 24, 10)
                   };
@@ -297,13 +392,54 @@ jobs:
                       Anchor = AnchorStyles.Top | AnchorStyles.Right,
                       BackColor = HeaderColor
                   };
+                  var profilePanel = new Panel
+                  {
+                      Size = new Size(190, 66),
+                      BackColor = HeaderColor,
+                      Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                      Cursor = Cursors.Hand
+                  };
+                  _avatar = new AvatarPictureBox { Location = new Point(0, 6) };
+                  Image? savedAvatar = LauncherImages.LoadFile(GameInstall.AvatarPath);
+                  if (savedAvatar != null) _avatar.AvatarImage = savedAvatar;
+                  var profileName = new Label
+                  {
+                      AutoSize = true,
+                      Text = "ИГРОК VEXORIUM",
+                      Location = new Point(64, 15),
+                      ForeColor = White,
+                      Font = new Font("Segoe UI", 8.7F, FontStyle.Bold),
+                      BackColor = HeaderColor,
+                      Cursor = Cursors.Hand
+                  };
+                  var profileHint = new Label
+                  {
+                      AutoSize = true,
+                      Text = "Изменить аватар",
+                      Location = new Point(64, 36),
+                      ForeColor = Red,
+                      Font = new Font("Segoe UI", 8F, FontStyle.Regular),
+                      BackColor = HeaderColor,
+                      Cursor = Cursors.Hand
+                  };
+                  profilePanel.Controls.Add(_avatar);
+                  profilePanel.Controls.Add(profileName);
+                  profilePanel.Controls.Add(profileHint);
                   header.Controls.Add(brand);
                   header.Controls.Add(rolePlay);
                   header.Controls.Add(serverLabel);
-                  void PlaceServerLabel() => serverLabel.Location = new Point(
-                      Math.Max(360, header.ClientSize.Width - serverLabel.Width - 24), 33);
-                  header.Resize += (_, _) => PlaceServerLabel();
-                  PlaceServerLabel();
+                  header.Controls.Add(profilePanel);
+                  _avatar.Click += (_, _) => ChangeAvatar();
+                  profileName.Click += (_, _) => ChangeAvatar();
+                  profileHint.Click += (_, _) => ChangeAvatar();
+                  profilePanel.Click += (_, _) => ChangeAvatar();
+                  void PlaceHeaderRightItems()
+                  {
+                      profilePanel.Location = new Point(Math.Max(0, header.ClientSize.Width - profilePanel.Width - 22), 8);
+                      serverLabel.Location = new Point(Math.Max(300, profilePanel.Left - serverLabel.Width - 26), 33);
+                  }
+                  header.Resize += (_, _) => PlaceHeaderRightItems();
+                  PlaceHeaderRightItems();
 
                   _contentPanel = new Panel
                   {
@@ -327,8 +463,8 @@ jobs:
                       GrowStyle = TableLayoutPanelGrowStyle.FixedSize
                   };
                   _mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-                  int[] rowHeights = { 49, 32, 38, 184, 89, 75, 29 };
-                  _mainLayout.Height = 496;
+                  int[] rowHeights = { 52, 33, 40, 205, 92, 83, 31 };
+                  _mainLayout.Height = 536;
                   foreach (int height in rowHeights)
                       _mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
                   _contentPanel.Controls.Add(_mainLayout);
@@ -357,7 +493,7 @@ jobs:
                   var newsTitle = new Label
                   {
                       Dock = DockStyle.Fill,
-                      Text = "ПОСЛЕДНИЕ ОБНОВЛЕНИЯ",
+                      Text = "НОВОСТИ И ОБНОВЛЕНИЯ СЕРВЕРА",
                       Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                       ForeColor = White,
                       TextAlign = ContentAlignment.MiddleLeft,
@@ -439,7 +575,7 @@ jobs:
                   var footer = new Label
                   {
                       Dock = DockStyle.Fill,
-                      Text = "VEXORIUM ROLEPLAY  •  Увидимся в игре",
+                      Text = "VEXORIUM ROLEPLAY  •  ТВОЙ ГОРОД. ТВОИ ПРАВИЛА.",
                       ForeColor = Muted,
                       Font = new Font("Segoe UI", 8.5F),
                       TextAlign = ContentAlignment.MiddleLeft,
@@ -472,7 +608,7 @@ jobs:
                   var photo = new CoverPictureBox
                   {
                       Dock = DockStyle.Top,
-                      Height = 103,
+                      Height = 120,
                       BackColor = Color.FromArgb(39, 40, 49),
                       Image = LauncherImages.Load(imageResource),
                       Margin = Padding.Empty
@@ -525,7 +661,7 @@ jobs:
                       UseVisualStyleBackColor = false,
                       BackColor = back,
                       ForeColor = fore,
-                      Font = new Font("Segoe UI", 8.6F, FontStyle.Bold),
+                      Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                       Margin = new Padding(0, 0, 12, 8),
                       Cursor = Cursors.Hand,
                       TextAlign = ContentAlignment.MiddleCenter
@@ -539,6 +675,36 @@ jobs:
                       button.FlatAppearance.MouseOverBackColor = Color.FromArgb(245, 48, 63);
                   }
                   return button;
+              }
+
+              private void ChangeAvatar()
+              {
+                  using var dialog = new OpenFileDialog
+                  {
+                      Title = "Выбери аватар VEXORIUM",
+                      Filter = "Изображения (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp",
+                      CheckFileExists = true,
+                      Multiselect = false
+                  };
+                  if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                  try
+                  {
+                      using var source = Image.FromFile(dialog.FileName);
+                      using var bitmap = new Bitmap(source);
+                      Directory.CreateDirectory(Path.GetDirectoryName(GameInstall.AvatarPath)!);
+                      bitmap.Save(GameInstall.AvatarPath, ImageFormat.Png);
+                      Image? newAvatar = LauncherImages.LoadFile(GameInstall.AvatarPath);
+                      if (newAvatar is null) throw new InvalidDataException("Не удалось открыть выбранное изображение.");
+                      Image? oldAvatar = _avatar.AvatarImage;
+                      _avatar.AvatarImage = newAvatar;
+                      _avatar.Invalidate();
+                      oldAvatar?.Dispose();
+                  }
+                  catch (Exception ex)
+                  {
+                      MessageBox.Show(this, "Не удалось установить аватар:\n" + ex.Message,
+                          "Аватар VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                  }
               }
 
               private string StatusText()
