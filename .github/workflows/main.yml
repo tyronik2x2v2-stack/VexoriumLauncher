@@ -1,4 +1,3 @@
-# Запуск сборки VEXORIUM
 name: Build VEXORIUM Launcher
 
 on:
@@ -21,10 +20,25 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Create and publish launcher
+      - name: Download photo assets, create project, and publish launcher
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path .\src | Out-Null
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\src\Assets | Out-Null
+
+          # Фотографии берутся с Unsplash и встраиваются в опубликованный EXE как ресурсы.
+          $photos = @(
+            @{ Name = 'police.jpg'; Url = 'https://images.unsplash.com/photo-1693745200286-3b636b5f3bd6?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'; Credit = 'Paul Lichtblau / Unsplash — https://unsplash.com/photos/a-police-car-at-night-with-its-lights-on-1FS1aOEvalk' },
+            @{ Name = 'fbi.jpg'; Url = 'https://images.unsplash.com/photo-1644911608651-dacd9169b9a1?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'; Credit = 'Lam Duy Nguyen Ngoc / Unsplash — https://unsplash.com/es/fotos/un-suv-negro-conduciendo-por-una-calle-por-la-noche-dyxBicWPavo' },
+            @{ Name = 'autotheft.jpg'; Url = 'https://images.unsplash.com/photo-1604705528621-81b2755a320b?auto=format&fit=crop&fm=jpg&h=600&ixlib=rb-4.1.0&q=78&w=1200'; Credit = 'Unsplash — https://unsplash.com/s/photos/supercar' }
+          )
+          foreach ($photo in $photos) {
+            $destination = Join-Path '.\src\Assets' $photo.Name
+            Invoke-WebRequest -Uri $photo.Url -OutFile $destination -Headers @{ 'User-Agent' = 'Mozilla/5.0 VexoriumLauncherBuild' } -TimeoutSec 60
+            if (!(Test-Path $destination) -or (Get-Item $destination).Length -lt 10000) { throw "Photo download failed or is too small: $($photo.Name)" }
+            Write-Host "Photo embedded: $($photo.Name)"
+          }
+
           $projectContent = @'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
@@ -35,15 +49,24 @@ jobs:
               <ImplicitUsings>enable</ImplicitUsings>
               <AssemblyName>VexoriumLauncher</AssemblyName>
               <RootNamespace>VexoriumLauncher</RootNamespace>
+              <ApplicationManifest></ApplicationManifest>
             </PropertyGroup>
+            <ItemGroup>
+              <EmbeddedResource Include="Assets\police.jpg" LogicalName="VexoriumLauncher.Assets.police.jpg" />
+              <EmbeddedResource Include="Assets\fbi.jpg" LogicalName="VexoriumLauncher.Assets.fbi.jpg" />
+              <EmbeddedResource Include="Assets\autotheft.jpg" LogicalName="VexoriumLauncher.Assets.autotheft.jpg" />
+            </ItemGroup>
           </Project>
           '@
           Set-Content -Encoding utf8 -Path .\src\VexoriumLauncher.csproj -Value $projectContent
 
           $sourceContent = @'
+          using System;
           using System.Diagnostics;
           using System.Drawing;
+          using System.Drawing.Drawing2D;
           using System.IO;
+          using System.Reflection;
           using System.Windows.Forms;
 
           namespace VexoriumLauncher;
@@ -55,23 +78,32 @@ jobs:
               {
                   ApplicationConfiguration.Initialize();
                   string? gamePath = GameInstall.FindSavedPath();
+
                   if (string.IsNullOrWhiteSpace(gamePath))
                   {
                       DialogResult answer = MessageBox.Show(
-                          "У вас уже есть совместимая PC-версия GTA San Andreas?\n\nНажмите «Да», чтобы выбрать папку игры. Если игры нет, установите законно приобретённую копию и запустите лаунчер снова.",
+                          "У вас уже есть совместимая PC-версия GTA San Andreas?\n\nДа — выберите папку игры.\nНет — сначала установите свою законно приобретённую копию игры, затем запустите лаунчер снова.",
                           "VEXORIUM ROLEPLAY — первый запуск",
                           MessageBoxButtons.YesNo,
                           MessageBoxIcon.Question);
+
                       if (answer == DialogResult.Yes)
+                      {
                           gamePath = GameInstall.PickGameFolder();
+                          if (!string.IsNullOrWhiteSpace(gamePath))
+                              GameInstall.PromptForSampIfMissing(gamePath, null);
+                      }
                   }
+
                   Application.Run(new LauncherForm(gamePath));
               }
           }
 
           internal static class GameInstall
           {
-              private static readonly string ConfigDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
+              private const string SampDownloadPage = "https://www.sa-mp.mp/downloads/";
+              private static readonly string ConfigDirectory = Path.Combine(
+                  Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
               private static readonly string ConfigFile = Path.Combine(ConfigDirectory, "game-path.txt");
 
               public static string? FindSavedPath()
@@ -88,7 +120,11 @@ jobs:
                   return null;
               }
 
-              public static bool IsGameFolder(string? path) => !string.IsNullOrWhiteSpace(path) && File.Exists(Path.Combine(path, "gta_sa.exe"));
+              public static bool IsGameFolder(string? path) =>
+                  !string.IsNullOrWhiteSpace(path) && File.Exists(Path.Combine(path, "gta_sa.exe"));
+
+              public static bool HasSamp(string? gamePath) =>
+                  IsGameFolder(gamePath) && File.Exists(Path.Combine(gamePath!, "samp.exe"));
 
               public static string? PickGameFolder()
               {
@@ -98,12 +134,16 @@ jobs:
                       UseDescriptionForTitle = true,
                       ShowNewFolderButton = false
                   };
+
                   if (dialog.ShowDialog() != DialogResult.OK) return null;
                   if (!IsGameFolder(dialog.SelectedPath))
                   {
-                      MessageBox.Show("В выбранной папке не найден gta_sa.exe. Выберите именно папку GTA San Andreas.", "Папка не найдена", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      MessageBox.Show(
+                          "В выбранной папке не найден gta_sa.exe. Выберите именно папку GTA San Andreas.",
+                          "Папка игры не найдена", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                       return null;
                   }
+
                   try
                   {
                       Directory.CreateDirectory(ConfigDirectory);
@@ -112,6 +152,82 @@ jobs:
                   catch { }
                   return dialog.SelectedPath;
               }
+
+              public static void PromptForSampIfMissing(string? gamePath, IWin32Window? owner)
+              {
+                  if (!IsGameFolder(gamePath) || HasSamp(gamePath)) return;
+
+                  DialogResult choice = MessageBox.Show(
+                      owner,
+                      "GTA San Andreas найдена, но samp.exe отсутствует.\n\n" +
+                      "Нажмите «Да», чтобы открыть официальный сайт SA-MP и самостоятельно скачать установщик. " +
+                      "При установке укажите ту же папку, где находится gta_sa.exe. После установки вернитесь в VEXORIUM и нажмите «Играть».\n\n" +
+                      "Лаунчер не устанавливает сторонние файлы без вашего согласия.",
+                      "SA-MP не найден — требуется установка",
+                      MessageBoxButtons.YesNo,
+                      MessageBoxIcon.Information);
+
+                  if (choice != DialogResult.Yes) return;
+                  try
+                  {
+                      Process.Start(new ProcessStartInfo { FileName = SampDownloadPage, UseShellExecute = true });
+                  }
+                  catch (Exception ex)
+                  {
+                      MessageBox.Show(owner, "Не удалось открыть сайт SA-MP:\n" + ex.Message,
+                          "Ошибка открытия сайта", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                  }
+              }
+          }
+
+          internal static class LauncherImages
+          {
+              public static Image? Load(string resourceName)
+              {
+                  try
+                  {
+                      using Stream? stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+                      if (stream is null) return null;
+                      using var original = new Bitmap(stream);
+                      return new Bitmap(original);
+                  }
+                  catch { return null; }
+              }
+          }
+
+          internal sealed class CoverPictureBox : PictureBox
+          {
+              public CoverPictureBox()
+              {
+                  DoubleBuffered = true;
+                  SizeMode = PictureBoxSizeMode.Normal;
+              }
+
+              protected override void OnPaint(PaintEventArgs e)
+              {
+                  e.Graphics.Clear(BackColor);
+                  if (Image is null || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+
+                  float sourceAspect = (float)Image.Width / Image.Height;
+                  float targetAspect = (float)ClientSize.Width / ClientSize.Height;
+                  Rectangle source;
+                  if (sourceAspect > targetAspect)
+                  {
+                      int cropWidth = Math.Max(1, (int)(Image.Height * targetAspect));
+                      source = new Rectangle((Image.Width - cropWidth) / 2, 0, cropWidth, Image.Height);
+                  }
+                  else
+                  {
+                      int cropHeight = Math.Max(1, (int)(Image.Width / targetAspect));
+                      source = new Rectangle(0, (Image.Height - cropHeight) / 2, Image.Width, cropHeight);
+                  }
+
+                  e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                  e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                  e.Graphics.DrawImage(Image,
+                      new Rectangle(0, 0, ClientSize.Width, ClientSize.Height),
+                      source, GraphicsUnit.Pixel);
+              }
           }
 
           internal sealed class LauncherForm : Form
@@ -119,118 +235,356 @@ jobs:
               private const string ServerAddress = "ams-game-02.centnodes.net:40065";
               private string? _gamePath;
               private readonly Label _gameStatus;
-              private readonly Button _launchButton;
+              private readonly Button _playButton;
+              private readonly TableLayoutPanel _mainLayout;
+              private readonly Panel _contentPanel;
+              private readonly TableLayoutPanel _newsGrid;
 
-              private static readonly Color BackgroundColor = Color.FromArgb(16, 17, 22);
-              private static readonly Color PanelColor = Color.FromArgb(27, 28, 35);
+              private static readonly Color BackgroundColor = Color.FromArgb(15, 16, 21);
+              private static readonly Color HeaderColor = Color.FromArgb(21, 22, 29);
+              private static readonly Color PanelColor = Color.FromArgb(29, 30, 38);
               private static readonly Color Red = Color.FromArgb(225, 39, 54);
-              private static readonly Color White = Color.FromArgb(245, 245, 248);
-              private static readonly Color Muted = Color.FromArgb(165, 167, 178);
+              private static readonly Color White = Color.FromArgb(246, 246, 249);
+              private static readonly Color Muted = Color.FromArgb(166, 169, 180);
 
               public LauncherForm(string? gamePath)
               {
                   _gamePath = GameInstall.IsGameFolder(gamePath) ? gamePath : null;
+
                   Text = "VEXORIUM ROLEPLAY";
                   StartPosition = FormStartPosition.CenterScreen;
-                  MinimumSize = new Size(850, 590);
-                  Size = new Size(1040, 700);
+                  AutoScaleMode = AutoScaleMode.Dpi;
+                  MinimumSize = new Size(790, 625);
+                  ClientSize = new Size(1080, 760);
                   BackColor = BackgroundColor;
                   ForeColor = White;
-                  Font = new Font("Segoe UI", 10F);
+                  Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
+                  FormBorderStyle = FormBorderStyle.Sizable;
 
-                  var header = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Color.FromArgb(22, 23, 29), Padding = new Padding(28, 12, 24, 12) };
+                  var header = new Panel
+                  {
+                      Dock = DockStyle.Top,
+                      Height = 88,
+                      BackColor = HeaderColor,
+                      Padding = new Padding(24, 10, 24, 10)
+                  };
                   Controls.Add(header);
-                  var brand = new Label { AutoSize = true, Text = "VEXORIUM", Font = new Font("Segoe UI", 25F, FontStyle.Bold), ForeColor = Red, Location = new Point(25, 12) };
-                  var rolePlay = new Label { AutoSize = true, Text = "ROLEPLAY", Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = White, Location = new Point(29, 56) };
-                  var server = new Label { AutoSize = true, Text = "СЕРВЕР 01  •  VEXORIUM ROLEPLAY", ForeColor = Muted, Font = new Font("Segoe UI", 10F, FontStyle.Bold), Anchor = AnchorStyles.Top | AnchorStyles.Right };
-                  header.Controls.Add(brand); header.Controls.Add(rolePlay); header.Controls.Add(server);
-                  header.Resize += (_, _) => server.Location = new Point(Math.Max(430, header.ClientSize.Width - server.Width - 24), 36);
-                  server.Location = new Point(700, 36);
 
-                  var content = new Panel { Dock = DockStyle.Fill, Padding = new Padding(28, 23, 28, 25), BackColor = BackgroundColor, AutoScroll = true };
-                  Controls.Add(content);
-                  content.BringToFront();
+                  var brand = new Label
+                  {
+                      AutoSize = true,
+                      Text = "VEXORIUM",
+                      Font = new Font("Segoe UI", 24F, FontStyle.Bold),
+                      ForeColor = Red,
+                      Location = new Point(24, 7),
+                      BackColor = HeaderColor
+                  };
+                  var rolePlay = new Label
+                  {
+                      AutoSize = true,
+                      Text = "ROLEPLAY",
+                      Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                      ForeColor = White,
+                      Location = new Point(29, 55),
+                      BackColor = HeaderColor
+                  };
+                  var serverLabel = new Label
+                  {
+                      AutoSize = true,
+                      Text = "ТВОЙ ГОРОД • ТВОЯ ИСТОРИЯ",
+                      ForeColor = Muted,
+                      Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                      Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                      BackColor = HeaderColor
+                  };
+                  header.Controls.Add(brand);
+                  header.Controls.Add(rolePlay);
+                  header.Controls.Add(serverLabel);
+                  void PlaceServerLabel() => serverLabel.Location = new Point(
+                      Math.Max(360, header.ClientSize.Width - serverLabel.Width - 24), 33);
+                  header.Resize += (_, _) => PlaceServerLabel();
+                  PlaceServerLabel();
+
+                  _contentPanel = new Panel
+                  {
+                      Dock = DockStyle.Fill,
+                      BackColor = BackgroundColor,
+                      Padding = new Padding(22, 17, 22, 15),
+                      AutoScroll = true
+                  };
+                  Controls.Add(_contentPanel);
                   header.BringToFront();
 
-                  var welcome = new Label { Dock = DockStyle.Top, Height = 45, Text = "ТВОЯ ИСТОРИЯ НАЧИНАЕТСЯ ЗДЕСЬ", Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = White, TextAlign = ContentAlignment.MiddleLeft };
-                  content.Controls.Add(welcome);
-                  var subtitle = new Label { Dock = DockStyle.Top, Height = 32, Text = "Подготовь игру и присоединяйся к VEXORIUM ROLEPLAY", ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
-                  content.Controls.Add(subtitle);
+                  _mainLayout = new TableLayoutPanel
+                  {
+                      Dock = DockStyle.Top,
+                      AutoSize = false,
+                      ColumnCount = 1,
+                      RowCount = 7,
+                      Margin = Padding.Empty,
+                      Padding = Padding.Empty,
+                      BackColor = BackgroundColor,
+                      GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+                  };
+                  _mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+                  int[] rowHeights = { 49, 32, 38, 184, 89, 75, 29 };
+                  _mainLayout.Height = 496;
+                  foreach (int height in rowHeights)
+                      _mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+                  _contentPanel.Controls.Add(_mainLayout);
 
-                  var newsTitle = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(0, 13, 0, 0), Text = "ПОСЛЕДНИЕ ОБНОВЛЕНИЯ", Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = White };
-                  content.Controls.Add(newsTitle);
+                  var welcome = new Label
+                  {
+                      Dock = DockStyle.Fill,
+                      Text = "ТВОЯ ИСТОРИЯ НАЧИНАЕТСЯ ЗДЕСЬ",
+                      Font = new Font("Segoe UI", 17F, FontStyle.Bold),
+                      ForeColor = White,
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      BackColor = BackgroundColor,
+                      Margin = Padding.Empty,
+                      AutoEllipsis = true
+                  };
+                  var subtitle = new Label
+                  {
+                      Dock = DockStyle.Fill,
+                      Text = "Подготовь игру и присоединяйся к VEXORIUM ROLEPLAY",
+                      ForeColor = Muted,
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      BackColor = BackgroundColor,
+                      Margin = Padding.Empty,
+                      AutoEllipsis = true
+                  };
+                  var newsTitle = new Label
+                  {
+                      Dock = DockStyle.Fill,
+                      Text = "ПОСЛЕДНИЕ ОБНОВЛЕНИЯ",
+                      Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                      ForeColor = White,
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      BackColor = BackgroundColor,
+                      Margin = Padding.Empty
+                  };
 
-                  var cards = new TableLayoutPanel { Dock = DockStyle.Top, Height = 150, ColumnCount = 3, RowCount = 1, BackColor = BackgroundColor, Margin = new Padding(0), Padding = new Padding(0) };
-                  cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
-                  cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
-                  cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.334F));
-                  cards.Controls.Add(NewsCard("ПОЛИЦИЯ", "Новые возможности службы", Color.FromArgb(53, 76, 123)), 0, 0);
-                  cards.Controls.Add(NewsCard("FBI", "Обновление спецподразделения", Color.FromArgb(83, 48, 77)), 1, 0);
-                  cards.Controls.Add(NewsCard("АВТОУГОН", "Новая работа для жителей", Color.FromArgb(121, 58, 38)), 2, 0);
-                  content.Controls.Add(cards);
+                  _newsGrid = new TableLayoutPanel
+                  {
+                      Dock = DockStyle.Fill,
+                      ColumnCount = 3,
+                      RowCount = 1,
+                      BackColor = BackgroundColor,
+                      Margin = Padding.Empty,
+                      Padding = Padding.Empty,
+                      GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+                  };
+                  _newsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
+                  _newsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
+                  _newsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.334F));
+                  _newsGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+                  _newsGrid.Controls.Add(NewsCard("ПОЛИЦИЯ", "Обновления службы и патрулирования", "VexoriumLauncher.Assets.police.jpg", 0), 0, 0);
+                  _newsGrid.Controls.Add(NewsCard("FBI", "Новое оснащение спецподразделения", "VexoriumLauncher.Assets.fbi.jpg", 1), 1, 0);
+                  _newsGrid.Controls.Add(NewsCard("АВТОУГОН", "Новая работа для жителей города", "VexoriumLauncher.Assets.autotheft.jpg", 2), 2, 0);
 
-                  var info = new Panel { Dock = DockStyle.Top, Height = 94, BackColor = PanelColor, Padding = new Padding(18, 13, 18, 10) };
-                  var infoTitle = new Label { Dock = DockStyle.Top, Height = 25, Text = "ГОТОВНОСТЬ К ИГРЕ", Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = White };
-                  _gameStatus = new Label { Dock = DockStyle.Fill, Text = StatusText(), ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
-                  info.Controls.Add(_gameStatus); info.Controls.Add(infoTitle);
-                  content.Controls.Add(info);
+                  var info = new Panel
+                  {
+                      Dock = DockStyle.Fill,
+                      BackColor = PanelColor,
+                      Padding = new Padding(15, 8, 15, 7),
+                      Margin = Padding.Empty
+                  };
+                  var infoTitle = new Label
+                  {
+                      Dock = DockStyle.Top,
+                      Height = 25,
+                      Text = "ГОТОВНОСТЬ К ИГРЕ",
+                      Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                      ForeColor = White,
+                      BackColor = PanelColor,
+                      Margin = Padding.Empty
+                  };
+                  _gameStatus = new Label
+                  {
+                      Dock = DockStyle.Fill,
+                      Text = StatusText(),
+                      ForeColor = Muted,
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      BackColor = PanelColor,
+                      Margin = Padding.Empty,
+                      AutoEllipsis = true
+                  };
+                  info.Controls.Add(_gameStatus);
+                  info.Controls.Add(infoTitle);
 
-                  var buttons = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 78, Padding = new Padding(0, 17, 0, 0), BackColor = BackgroundColor, WrapContents = false };
-                  _launchButton = MakeButton("▶  ИГРАТЬ", Red, White, 230);
-                  _launchButton.Click += (_, _) => LaunchGame();
-                  var chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", PanelColor, White, 220);
-                  chooseButton.Click += (_, _) => { _gamePath = GameInstall.PickGameFolder(); RefreshStatus(); };
-                  var copyButton = MakeButton("КОПИРОВАТЬ IP", PanelColor, White, 175);
-                  copyButton.Click += (_, _) => { Clipboard.SetText(ServerAddress); MessageBox.Show("Адрес сервера скопирован: " + ServerAddress, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Information); };
-                  buttons.Controls.Add(_launchButton); buttons.Controls.Add(chooseButton); buttons.Controls.Add(copyButton);
-                  content.Controls.Add(buttons);
+                  var buttons = new FlowLayoutPanel
+                  {
+                      Dock = DockStyle.Fill,
+                      FlowDirection = FlowDirection.LeftToRight,
+                      WrapContents = true,
+                      AutoScroll = false,
+                      BackColor = BackgroundColor,
+                      Padding = new Padding(0, 9, 0, 0),
+                      Margin = Padding.Empty
+                  };
+                  _playButton = MakeButton("▶  ИГРАТЬ", Red, White, 178);
+                  _playButton.Click += (_, _) => LaunchGame();
+                  var chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", PanelColor, White, 207);
+                  chooseButton.Click += (_, _) => ChooseGameFolder();
+                  var siteButton = MakeButton("НАШ САЙТ", PanelColor, White, 160);
+                  siteButton.Click += (_, _) => MessageBox.Show(
+                      this,
+                      "Сайт VEXORIUM ROLEPLAY пока в разработке. Позже добавим сюда прямую ссылку.",
+                      "Сайт VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                  buttons.Controls.Add(_playButton);
+                  buttons.Controls.Add(chooseButton);
+                  buttons.Controls.Add(siteButton);
 
-                  var footer = new Label { Dock = DockStyle.Top, Height = 40, Text = "VEXORIUM ROLEPLAY  •  " + ServerAddress, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 9F) };
-                  content.Controls.Add(footer);
+                  var footer = new Label
+                  {
+                      Dock = DockStyle.Fill,
+                      Text = "VEXORIUM ROLEPLAY  •  Увидимся в игре",
+                      ForeColor = Muted,
+                      Font = new Font("Segoe UI", 8.5F),
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      BackColor = BackgroundColor,
+                      Margin = Padding.Empty
+                  };
+
+                  _mainLayout.Controls.Add(welcome, 0, 0);
+                  _mainLayout.Controls.Add(subtitle, 0, 1);
+                  _mainLayout.Controls.Add(newsTitle, 0, 2);
+                  _mainLayout.Controls.Add(_newsGrid, 0, 3);
+                  _mainLayout.Controls.Add(info, 0, 4);
+                  _mainLayout.Controls.Add(buttons, 0, 5);
+                  _mainLayout.Controls.Add(footer, 0, 6);
+
+                  _contentPanel.Resize += (_, _) => ResizeMainLayout();
+                  ResizeMainLayout();
                   RefreshStatus();
               }
 
-              private static Control NewsCard(string title, string description, Color accent)
+              private static Control NewsCard(string title, string description, string imageResource, int index)
               {
-                  var panel = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Margin = new Padding(0, 0, 12, 0), Padding = new Padding(14) };
-                  var stripe = new Panel { Dock = DockStyle.Left, Width = 5, BackColor = accent };
-                  var heading = new Label { Dock = DockStyle.Top, Height = 32, Text = title, Font = new Font("Segoe UI", 13F, FontStyle.Bold), ForeColor = White, Padding = new Padding(8, 2, 0, 0) };
-                  var desc = new Label { Dock = DockStyle.Fill, Text = description, ForeColor = Muted, Padding = new Padding(8, 5, 0, 0) };
-                  panel.Controls.Add(desc); panel.Controls.Add(heading); panel.Controls.Add(stripe);
+                  var panel = new Panel
+                  {
+                      Dock = DockStyle.Fill,
+                      BackColor = PanelColor,
+                      Margin = new Padding(0, 0, index == 2 ? 0 : 12, 0),
+                      Padding = Padding.Empty
+                  };
+                  var photo = new CoverPictureBox
+                  {
+                      Dock = DockStyle.Top,
+                      Height = 103,
+                      BackColor = Color.FromArgb(39, 40, 49),
+                      Image = LauncherImages.Load(imageResource),
+                      Margin = Padding.Empty
+                  };
+                  var heading = new Label
+                  {
+                      Dock = DockStyle.Top,
+                      Height = 27,
+                      Text = title,
+                      Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+                      ForeColor = White,
+                      BackColor = PanelColor,
+                      Padding = new Padding(10, 3, 6, 0),
+                      AutoEllipsis = true,
+                      Margin = Padding.Empty
+                  };
+                  var desc = new Label
+                  {
+                      Dock = DockStyle.Fill,
+                      Text = description,
+                      ForeColor = Muted,
+                      BackColor = PanelColor,
+                      Font = new Font("Segoe UI", 8.1F),
+                      Padding = new Padding(10, 2, 7, 4),
+                      AutoEllipsis = true,
+                      Margin = Padding.Empty
+                  };
+                  panel.Controls.Add(desc);
+                  panel.Controls.Add(heading);
+                  panel.Controls.Add(photo);
                   return panel;
               }
 
-              private Button MakeButton(string text, Color back, Color fore, int width) => new Button
+              private void ResizeMainLayout()
               {
-                  Text = text, Width = width, Height = 44, FlatStyle = FlatStyle.Flat,
-                  BackColor = back, ForeColor = fore, Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                  Margin = new Padding(0, 0, 12, 0), Cursor = Cursors.Hand
-              };
+                  if (_contentPanel.IsDisposed) return;
+                  int scrollWidth = _contentPanel.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
+                  _mainLayout.Width = Math.Max(300,
+                      _contentPanel.ClientSize.Width - _contentPanel.Padding.Horizontal - scrollWidth);
+              }
 
-              private string StatusText() => GameInstall.IsGameFolder(_gamePath)
-                  ? "GTA San Andreas найдена. Нажми «Играть», чтобы подключиться к серверу."
-                  : "Папка GTA San Andreas не выбрана. Нажми «Выбрать папку GTA».";
+              private Button MakeButton(string text, Color back, Color fore, int width)
+              {
+                  var button = new Button
+                  {
+                      Text = text,
+                      Width = width,
+                      Height = 43,
+                      FlatStyle = FlatStyle.Flat,
+                      UseVisualStyleBackColor = false,
+                      BackColor = back,
+                      ForeColor = fore,
+                      Font = new Font("Segoe UI", 8.6F, FontStyle.Bold),
+                      Margin = new Padding(0, 0, 12, 8),
+                      Cursor = Cursors.Hand,
+                      TextAlign = ContentAlignment.MiddleCenter
+                  };
+                  button.FlatAppearance.BorderColor = Color.FromArgb(61, 62, 73);
+                  button.FlatAppearance.BorderSize = 1;
+                  button.FlatAppearance.MouseOverBackColor = Color.FromArgb(45, 46, 56);
+                  if (back == Red)
+                  {
+                      button.FlatAppearance.BorderSize = 0;
+                      button.FlatAppearance.MouseOverBackColor = Color.FromArgb(245, 48, 63);
+                  }
+                  return button;
+              }
+
+              private string StatusText()
+              {
+                  if (!GameInstall.IsGameFolder(_gamePath))
+                      return "Папка GTA San Andreas не выбрана. Нажми «Выбрать папку GTA».";
+                  if (!GameInstall.HasSamp(_gamePath))
+                      return "GTA найдена, но SA-MP не установлен. Нажми «Играть» для инструкции по установке.";
+                  return "GTA San Andreas и SA-MP найдены. Можно подключаться к серверу.";
+              }
 
               private void RefreshStatus()
               {
                   _gameStatus.Text = StatusText();
-                  _launchButton.Enabled = GameInstall.IsGameFolder(_gamePath);
+                  _playButton.Enabled = GameInstall.IsGameFolder(_gamePath);
+                  _playButton.BackColor = _playButton.Enabled ? Red : Color.FromArgb(88, 34, 41);
+              }
+
+              private void ChooseGameFolder()
+              {
+                  string? selected = GameInstall.PickGameFolder();
+                  if (string.IsNullOrWhiteSpace(selected)) return;
+                  _gamePath = selected;
+                  RefreshStatus();
+                  GameInstall.PromptForSampIfMissing(_gamePath, this);
+                  RefreshStatus();
               }
 
               private void LaunchGame()
               {
                   if (!GameInstall.IsGameFolder(_gamePath))
                   {
-                      MessageBox.Show("Сначала выбери папку, где находится gta_sa.exe.", "GTA San Andreas", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      MessageBox.Show(this, "Сначала выбери папку, где находится gta_sa.exe.",
+                          "GTA San Andreas", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                       RefreshStatus();
                       return;
                   }
-                  string sampPath = Path.Combine(_gamePath!, "samp.exe");
-                  if (!File.Exists(sampPath))
+
+                  if (!GameInstall.HasSamp(_gamePath))
                   {
-                      MessageBox.Show("В папке игры не найден samp.exe. Установи совместимый клиент SA-MP отдельно, затем попробуй снова. Лаунчер не скачивает оригинальные файлы GTA.", "Не найден SA-MP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                      GameInstall.PromptForSampIfMissing(_gamePath, this);
+                      RefreshStatus();
                       return;
                   }
+
+                  string sampPath = Path.Combine(_gamePath!, "samp.exe");
                   try
                   {
                       Process.Start(new ProcessStartInfo
@@ -243,15 +597,27 @@ jobs:
                   }
                   catch (Exception ex)
                   {
-                      MessageBox.Show("Не удалось запустить SA-MP:\n" + ex.Message, "Ошибка запуска", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      MessageBox.Show(this, "Не удалось запустить SA-MP:\n" + ex.Message,
+                          "Ошибка запуска", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
               }
           }
           '@
           Set-Content -Encoding utf8 -Path .\src\Program.cs -Value $sourceContent
 
+          $credits = @'
+          VEXORIUM ROLEPLAY — image credits
+          - Police image: Paul Lichtblau / Unsplash, https://unsplash.com/photos/a-police-car-at-night-with-its-lights-on-1FS1aOEvalk
+          - SUV image: Unsplash, https://unsplash.com/es/fotos/un-suv-negro-conduciendo-por-una-calle-por-la-noche-dyxBicWPavo
+          - Sport car image: Unsplash, https://unsplash.com/s/photos/supercar
+          The images are retrieved by the GitHub Actions workflow at build time and embedded in the application.
+          '@
+          Set-Content -Encoding utf8 -Path .\src\Assets\PHOTO_CREDITS.txt -Value $credits
+
           dotnet publish .\src\VexoriumLauncher.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\PLAYER_BUILD
           if (!(Test-Path .\PLAYER_BUILD\VexoriumLauncher.exe)) { throw 'VexoriumLauncher.exe was not created.' }
+          Write-Host 'VEXORIUM launcher build completed.'
+
 
       - name: Upload launcher EXE
         uses: actions/upload-artifact@v4
