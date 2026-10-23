@@ -589,7 +589,8 @@ jobs:
                       {
                           FileName = OpenMpExe,
                           WorkingDirectory = OpenMpDirectory,
-                          UseShellExecute = true
+                          // Use direct process launch so all -h/-p/-n/-g arguments are passed to open.mp.
+                          UseShellExecute = false
                       };
                       startInfo.ArgumentList.Add("-h");
                       startInfo.ArgumentList.Add(ServerHost);
