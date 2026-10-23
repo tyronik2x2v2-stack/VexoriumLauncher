@@ -602,7 +602,7 @@ jobs:
 
                       Process.Start(startInfo);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Клиент open.mp запущен. При первом запуске он может подготовить нужную версию multiplayer-клиента.";
+                      _status.Text = "Установка завершена, удачной игры!";
                   }
                   catch (Exception ex)
                   {
