@@ -276,7 +276,7 @@ jobs:
                   Color.FromArgb(27, 29, 38);
 
               private static readonly Color Red =
-                  Color.FromArgb(226,  forty: 0, blue: 0);
+                  Color.FromArgb(226, 39, 54);
 
               private static readonly Color White =
                   Color.FromArgb(245, 246, 250);
