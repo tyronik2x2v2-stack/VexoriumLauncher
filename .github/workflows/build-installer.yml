@@ -20,17 +20,13 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Read version
+      - name: Read launcher version
         id: version
         shell: pwsh
         run: |
           $v = Get-Content .\version.json -Raw | ConvertFrom-Json
-          if ([string]::IsNullOrWhiteSpace($v.version)) {
-            throw "version.json has no version"
-          }
-          if ($v.version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
-            throw "Invalid version in version.json"
-          }
+          if ([string]::IsNullOrWhiteSpace($v.version)) { throw 'version.json has no version.' }
+          if ($v.version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw 'Invalid version in version.json.' }
           "version=$($v.version)" >> $env:GITHUB_OUTPUT
 
       - name: Create launcher source
@@ -74,38 +70,57 @@ jobs:
               private static void Main()
               {
                   ApplicationConfiguration.Initialize();
-                  string? gamePath = GameInstall.FindSavedPath();
-                  Application.Run(new LauncherForm(gamePath));
+                  Application.Run(new LauncherForm(GameInstall.FindSavedPath()));
               }
           }
 
           internal static class GameInstall
           {
               private static readonly string ConfigDirectory = Path.Combine(
-                  Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                  "Vexorium");
+                  Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
+              private static readonly string GamePathFile = Path.Combine(ConfigDirectory, "game-path.txt");
+              private static readonly string NicknameFile = Path.Combine(ConfigDirectory, "nickname.txt");
 
-              private static readonly string ConfigFile =
-                  Path.Combine(ConfigDirectory, "game-path.txt");
+              public static bool IsGameFolder(string? path) =>
+                  !string.IsNullOrWhiteSpace(path) && File.Exists(Path.Combine(path, "gta_sa.exe"));
 
               public static string? FindSavedPath()
               {
                   try
                   {
-                      if (File.Exists(ConfigFile))
+                      if (File.Exists(GamePathFile))
                       {
-                          string path = File.ReadAllText(ConfigFile).Trim();
-                          if (IsGameFolder(path))
-                              return path;
+                          string saved = File.ReadAllText(GamePathFile).Trim();
+                          if (IsGameFolder(saved)) return saved;
                       }
                   }
                   catch { }
                   return null;
               }
 
-              public static bool IsGameFolder(string? path) =>
-                  !string.IsNullOrWhiteSpace(path) &&
-                  File.Exists(Path.Combine(path, "gta_sa.exe"));
+              public static string ReadNickname()
+              {
+                  try
+                  {
+                      if (File.Exists(NicknameFile))
+                      {
+                          string name = File.ReadAllText(NicknameFile).Trim();
+                          if (!string.IsNullOrWhiteSpace(name)) return name;
+                      }
+                  }
+                  catch { }
+                  return "Vexor_Player";
+              }
+
+              public static void SaveNickname(string nickname)
+              {
+                  try
+                  {
+                      Directory.CreateDirectory(ConfigDirectory);
+                      File.WriteAllText(NicknameFile, nickname);
+                  }
+                  catch { }
+              }
 
               public static string? PickGameFolder()
               {
@@ -116,26 +131,20 @@ jobs:
                       ShowNewFolderButton = false
                   };
 
-                  if (dialog.ShowDialog() != DialogResult.OK)
-                      return null;
-
+                  if (dialog.ShowDialog() != DialogResult.OK) return null;
                   if (!IsGameFolder(dialog.SelectedPath))
                   {
-                      MessageBox.Show(
-                          "В выбранной папке не найден gta_sa.exe. Выберите папку GTA San Andreas.",
-                          "Папка GTA не найдена",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Warning);
+                      MessageBox.Show("В выбранной папке не найден gta_sa.exe. Выберите именно папку GTA San Andreas.",
+                          "Папка GTA не найдена", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                       return null;
                   }
 
                   try
                   {
                       Directory.CreateDirectory(ConfigDirectory);
-                      File.WriteAllText(ConfigFile, dialog.SelectedPath);
+                      File.WriteAllText(GamePathFile, dialog.SelectedPath);
                   }
                   catch { }
-
                   return dialog.SelectedPath;
               }
           }
@@ -143,9 +152,8 @@ jobs:
           internal sealed class RoundedButton : Button
           {
               private bool _hovered;
-
-              public Color HoverColor { get; set; } = Color.FromArgb(65, 66, 78);
-              public int CornerRadius { get; set; } = 16;
+              public Color HoverColor { get; set; } = Color.FromArgb(61, 63, 77);
+              public int CornerRadius { get; set; } = 14;
 
               public RoundedButton()
               {
@@ -153,13 +161,8 @@ jobs:
                   FlatAppearance.BorderSize = 0;
                   UseVisualStyleBackColor = false;
                   Cursor = Cursors.Hand;
-
-                  SetStyle(
-                      ControlStyles.UserPaint |
-                      ControlStyles.AllPaintingInWmPaint |
-                      ControlStyles.OptimizedDoubleBuffer |
-                      ControlStyles.ResizeRedraw,
-                      true);
+                  SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
               }
 
               protected override void OnMouseEnter(EventArgs e)
@@ -184,24 +187,18 @@ jobs:
 
               protected override void OnPaintBackground(PaintEventArgs e)
               {
-                  e.Graphics.Clear(Parent?.BackColor ?? Color.FromArgb(16, 17, 22));
+                  e.Graphics.Clear(Parent?.BackColor ?? Color.FromArgb(15, 16, 21));
               }
 
               protected override void OnPaint(PaintEventArgs e)
               {
                   e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-
                   Rectangle rect = ClientRectangle;
                   rect.Width -= 1;
                   rect.Height -= 1;
+                  if (rect.Width < 2 || rect.Height < 2) return;
 
-                  if (rect.Width <= 0 || rect.Height <= 0)
-                      return;
-
-                  Color fill = !Enabled
-                      ? Color.FromArgb(39, 40, 47)
-                      : _hovered ? HoverColor : BackColor;
-
+                  Color fill = !Enabled ? Color.FromArgb(39, 40, 47) : (_hovered ? HoverColor : BackColor);
                   using var path = CreateRoundedPath(rect, CornerRadius);
                   using var brush = new SolidBrush(fill);
                   e.Graphics.FillPath(brush, path);
@@ -212,494 +209,321 @@ jobs:
                       e.Graphics.DrawPath(pen, path);
                   }
 
-                  Color textColor = Enabled
-                      ? ForeColor
-                      : Color.FromArgb(115, 117, 128);
-
-                  TextRenderer.DrawText(
-                      e.Graphics,
-                      Text,
-                      Font,
-                      Rectangle.Inflate(rect, -8, -2),
-                      textColor,
-                      TextFormatFlags.HorizontalCenter |
-                      TextFormatFlags.VerticalCenter |
-                      TextFormatFlags.EndEllipsis |
-                      TextFormatFlags.NoPadding);
+                  TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(rect, -8, -2),
+                      Enabled ? ForeColor : Color.FromArgb(115, 117, 128),
+                      TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                      TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
               }
 
               private static GraphicsPath CreateRoundedPath(Rectangle r, int radius)
               {
                   int d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
                   var path = new GraphicsPath();
-
                   path.AddArc(r.X, r.Y, d, d, 180, 90);
                   path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
                   path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
                   path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
                   path.CloseFigure();
-
                   return path;
               }
           }
 
           internal sealed class LauncherForm : Form
           {
-              private const string ServerAddress = "ams-game-02.centnodes.net:40065";
-
-              private const string VersionUrl =
-                  "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/version.json";
-
-              private const string DownloadUrl =
-                  "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
-
+              private const string ServerHost = "ams-game-02.centnodes.net";
+              private const string ServerPort = "40065";
+              private const string VersionUrl = "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/version.json";
+              private const string LauncherDownloadUrl = "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
               private const string CurrentVersion = "__LAUNCHER_VERSION__";
+              private const string OpenMpReleaseApi = "https://api.github.com/repos/openmultiplayer/launcher/releases/latest";
+
+              private static readonly string OpenMpDirectory = Path.Combine(
+                  Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium", "open.mp");
+              private static readonly string OpenMpExe = Path.Combine(OpenMpDirectory, "omp-launcher.exe");
+              private static readonly string OpenMpTagFile = Path.Combine(OpenMpDirectory, "release-tag.txt");
 
               private string? _gamePath;
               private bool _checking;
               private bool _checkSucceeded;
               private bool _updateAvailable;
+              private bool _busy;
 
               private readonly Label _status;
               private readonly Label _versionLabel;
-              private readonly Button _playButton;
-              private readonly Button _updateButton;
-              private readonly Button _retryButton;
+              private readonly TextBox _nickname;
+              private readonly ProgressBar _progress;
+              private readonly RoundedButton _playButton;
+              private readonly RoundedButton _updateButton;
+              private readonly RoundedButton _chooseButton;
+              private readonly RoundedButton _copyButton;
+              private readonly RoundedButton _retryButton;
 
-              internal static readonly Color BackgroundColor =
-                  Color.FromArgb(15, 16, 21);
-
-              private static readonly Color HeaderColor =
-                  Color.FromArgb(21, 22, 29);
-
-              private static readonly Color PanelColor =
-                  Color.FromArgb(27, 29, 38);
-
-              private static readonly Color Red =
-                  Color.FromArgb(226, 39, 54);
-
-              private static readonly Color White =
-                  Color.FromArgb(245, 246, 250);
-
-              private static readonly Color Muted =
-                  Color.FromArgb(163, 166, 180);
-
-              private static readonly Color Green =
-                  Color.FromArgb(35, 143, 91);
+              private static readonly Color Background = Color.FromArgb(15, 16, 21);
+              private static readonly Color HeaderColor = Color.FromArgb(21, 22, 29);
+              private static readonly Color PanelColor = Color.FromArgb(27, 29, 38);
+              private static readonly Color Red = Color.FromArgb(226, 39, 54);
+              private static readonly Color White = Color.FromArgb(245, 246, 250);
+              private static readonly Color Muted = Color.FromArgb(163, 166, 180);
+              private static readonly Color Green = Color.FromArgb(35, 143, 91);
 
               public LauncherForm(string? gamePath)
               {
                   _gamePath = GameInstall.IsGameFolder(gamePath) ? gamePath : null;
-
                   Text = "VEXORIUM ROLEPLAY";
                   StartPosition = FormStartPosition.CenterScreen;
-                  MinimumSize = new Size(900, 660);
-                  Size = new Size(1120, 740);
-                  BackColor = BackgroundColor;
+                  MinimumSize = new Size(900, 670);
+                  Size = new Size(1080, 735);
+                  BackColor = Background;
                   ForeColor = White;
                   Font = new Font("Segoe UI", 10F);
-                  FormBorderStyle = FormBorderStyle.Sizable;
 
-                  var header = new Panel
+                  var header = new Panel { Dock = DockStyle.Top, Height = 94, BackColor = HeaderColor };
+                  header.Controls.Add(new Label
                   {
-                      Dock = DockStyle.Top,
-                      Height = 96,
-                      BackColor = HeaderColor
-                  };
-
-                  var brand = new Label
+                      AutoSize = true, Text = "VEXORIUM", Font = new Font("Segoe UI", 26F, FontStyle.Bold),
+                      ForeColor = Red, Location = new Point(25, 9)
+                  });
+                  header.Controls.Add(new Label
                   {
-                      AutoSize = true,
-                      Text = "VEXORIUM",
-                      Font = new Font("Segoe UI", 27F, FontStyle.Bold),
-                      ForeColor = Red,
-                      Location = new Point(27, 10)
-                  };
-
-                  var subBrand = new Label
-                  {
-                      AutoSize = true,
-                      Text = "ROLEPLAY  /  PC LAUNCHER",
-                      Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                      ForeColor = White,
-                      Location = new Point(31, 61)
-                  };
-
+                      AutoSize = true, Text = "ROLEPLAY  /  PC LAUNCHER", Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                      ForeColor = White, Location = new Point(30, 60)
+                  });
                   _versionLabel = new Label
                   {
-                      AutoSize = true,
-                      Text = "CLIENT  •  " + CurrentVersion,
-                      Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                      ForeColor = Muted
+                      AutoSize = true, Text = "КЛИЕНТ " + CurrentVersion,
+                      ForeColor = Muted, Font = new Font("Segoe UI", 9F, FontStyle.Bold)
                   };
-
-                  header.Controls.Add(brand);
-                  header.Controls.Add(subBrand);
                   header.Controls.Add(_versionLabel);
-
-                  void PositionVersion()
-                  {
-                      _versionLabel.Location = new Point(
-                          Math.Max(20, header.ClientSize.Width - _versionLabel.Width - 28),
-                          39);
-                  }
-
+                  void PositionVersion() => _versionLabel.Location = new Point(
+                      Math.Max(20, header.ClientSize.Width - _versionLabel.Width - 25), 38);
                   header.Resize += (_, _) => PositionVersion();
                   PositionVersion();
 
-                  var content = new Panel
-                  {
-                      Dock = DockStyle.Fill,
-                      BackColor = BackgroundColor,
-                      AutoScroll = true
-                  };
-
-                  Controls.Add(header);
+                  var content = new Panel { Dock = DockStyle.Fill, BackColor = Background, AutoScroll = true };
                   Controls.Add(content);
-                  content.BringToFront();
+                  Controls.Add(header);
                   header.BringToFront();
 
-                  var welcome = new Label
+                  content.Controls.Add(new Label
                   {
-                      Location = new Point(27, 20),
-                      Size = new Size(900, 42),
+                      Location = new Point(27, 18), Size = new Size(900, 40),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                       Text = "ТВОЯ ИСТОРИЯ НАЧИНАЕТСЯ ЗДЕСЬ",
-                      Font = new Font("Segoe UI", 19F, FontStyle.Bold),
-                      ForeColor = White
-                  };
-
-                  var subtitle = new Label
+                      Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = White
+                  });
+                  content.Controls.Add(new Label
                   {
-                      Location = new Point(29, 64),
-                      Size = new Size(850, 26),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = "Подготовь игру и присоединяйся к VEXORIUM ROLEPLAY",
-                      Font = new Font("Segoe UI", 10F),
+                      Location = new Point(29, 61), Size = new Size(850, 25),
+                      Text = "Установка клиента и подключение к VEXORIUM ROLEPLAY",
                       ForeColor = Muted
-                  };
-
-                  var newsTitle = new Label
+                  });
+                  content.Controls.Add(new Label
                   {
-                      Location = new Point(29, 113),
-                      Size = new Size(400, 24),
-                      Text = "МИР VEXORIUM",
-                      Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                      ForeColor = White
-                  };
+                      Location = new Point(29, 102), Size = new Size(350, 24),
+                      Text = "МИР VEXORIUM", Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = White
+                  });
 
                   var cards = new TableLayoutPanel
                   {
-                      Location = new Point(27, 145),
-                      Size = new Size(content.ClientSize.Width - 54, 135),
+                      Location = new Point(27, 132), Size = new Size(content.ClientSize.Width - 54, 127),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      ColumnCount = 3,
-                      RowCount = 1,
-                      BackColor = BackgroundColor,
-                      Margin = Padding.Empty,
-                      Padding = Padding.Empty
+                      ColumnCount = 3, RowCount = 1, BackColor = Background,
+                      Margin = Padding.Empty, Padding = Padding.Empty
                   };
-
-                  for (int i = 0; i < 3; i++)
-                      cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
-
-                  cards.Controls.Add(
-                      NewsCard("ПОЛИЦИЯ", "Новые возможности службы", Color.FromArgb(72, 103, 166)),
-                      0, 0);
-
-                  cards.Controls.Add(
-                      NewsCard("FBI", "Обновление спецподразделения", Color.FromArgb(133, 75, 132)),
-                      1, 0);
-
-                  cards.Controls.Add(
-                      NewsCard("АВТОУГОН", "Новая работа для жителей", Color.FromArgb(195, 93, 56)),
-                      2, 0);
-
-                  content.Controls.Add(welcome);
-                  content.Controls.Add(subtitle);
-                  content.Controls.Add(newsTitle);
+                  for (int i = 0; i < 3; i++) cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
+                  cards.Controls.Add(NewsCard("ПОЛИЦИЯ", "Новые возможности службы", Color.FromArgb(72, 103, 166)), 0, 0);
+                  cards.Controls.Add(NewsCard("FBI", "Обновление спецподразделения", Color.FromArgb(133, 75, 132)), 1, 0);
+                  cards.Controls.Add(NewsCard("АВТОУГОН", "Новая работа для жителей", Color.FromArgb(195, 93, 56)), 2, 0);
                   content.Controls.Add(cards);
 
                   var info = new Panel
                   {
-                      Location = new Point(27, 299),
-                      Size = new Size(content.ClientSize.Width - 54, 96),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      BackColor = PanelColor
+                      Location = new Point(27, 278), Size = new Size(content.ClientSize.Width - 54, 95),
+                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = PanelColor
                   };
-
-                  var accent = new Panel
+                  info.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 5, BackColor = Red });
+                  info.Controls.Add(new Label
                   {
-                      Dock = DockStyle.Left,
-                      Width = 5,
-                      BackColor = Red
-                  };
-
-                  var infoTitle = new Label
-                  {
-                      Location = new Point(21, 12),
-                      Size = new Size(500, 22),
-                      Text = "СОСТОЯНИЕ ЛАУНЧЕРА",
-                      Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                      ForeColor = White
-                  };
-
+                      Location = new Point(20, 11), Size = new Size(420, 20), Text = "СОСТОЯНИЕ ЛАУНЧЕРА",
+                      Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = White
+                  });
                   _status = new Label
                   {
-                      Location = new Point(21, 39),
-                      Size = new Size(info.ClientSize.Width - 45, 43),
+                      Location = new Point(20, 37), Size = new Size(info.ClientSize.Width - 42, 44),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = "Проверка обновлений…",
-                      Font = new Font("Segoe UI", 9.5F),
-                      ForeColor = Muted,
-                      AutoEllipsis = true
+                      Text = "Проверка обновлений…", ForeColor = Muted, AutoEllipsis = true
                   };
-
                   info.Controls.Add(_status);
-                  info.Controls.Add(infoTitle);
-                  info.Controls.Add(accent);
                   content.Controls.Add(info);
+
+                  content.Controls.Add(new Label
+                  {
+                      Location = new Point(29, 392), Size = new Size(150, 22), Text = "НИКНЕЙМ",
+                      Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = White
+                  });
+                  _nickname = new TextBox
+                  {
+                      Location = new Point(27, 418), Size = new Size(245, 32),
+                      Text = GameInstall.ReadNickname(), MaxLength = 24,
+                      Font = new Font("Segoe UI", 10F), BackColor = PanelColor, ForeColor = White,
+                      BorderStyle = BorderStyle.FixedSingle
+                  };
+                  content.Controls.Add(_nickname);
 
                   var buttons = new FlowLayoutPanel
                   {
-                      Location = new Point(27, 416),
-                      Size = new Size(content.ClientSize.Width - 54, 105),
+                      Location = new Point(27, 470), Size = new Size(content.ClientSize.Width - 54, 102),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      FlowDirection = FlowDirection.LeftToRight,
-                      WrapContents = true,
-                      AutoScroll = false,
-                      BackColor = BackgroundColor,
-                      Padding = Padding.Empty,
-                      Margin = Padding.Empty
+                      FlowDirection = FlowDirection.LeftToRight, WrapContents = true,
+                      BackColor = Background, Padding = Padding.Empty, Margin = Padding.Empty
                   };
 
-                  _playButton = MakeButton(
-                      "▶  ИГРАТЬ",
-                      Red,
-                      Color.FromArgb(255, 135, 145),
-                      White,
-                      185);
+                  _playButton = MakeButton("УСТАНОВИТЬ КЛИЕНТ", Red, Color.FromArgb(255, 125, 137), White, 205);
+                  _playButton.Click += async (_, _) => await LaunchWithOpenMpAsync();
 
-                  _playButton.Click += (_, _) => LaunchGame();
-
-                  _updateButton = MakeButton(
-                      "↓  ОБНОВИТЬ",
-                      Green,
-                      Color.FromArgb(55, 177, 116),
-                      White,
-                      175);
-
+                  _updateButton = MakeButton("ОБНОВИТЬ", Green, Color.FromArgb(55, 177, 116), White, 160);
                   _updateButton.Visible = false;
-                  _updateButton.Click += async (_, _) => await UpdateLauncher();
+                  _updateButton.Click += async (_, _) => await UpdateLauncherAsync();
 
-                  var chooseButton = MakeButton(
-                      "ВЫБРАТЬ ПАПКУ GTA",
-                      PanelColor,
-                      Color.FromArgb(61, 63, 77),
-                      White,
-                      205);
-
-                  chooseButton.Click += (_, _) =>
+                  _chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", PanelColor, Color.FromArgb(61, 63, 77), White, 205);
+                  _chooseButton.Click += (_, _) =>
                   {
                       string? selected = GameInstall.PickGameFolder();
-
-                      if (!string.IsNullOrWhiteSpace(selected))
-                          _gamePath = selected;
-
-                      RefreshPlayState();
-
+                      if (!string.IsNullOrWhiteSpace(selected)) _gamePath = selected;
+                      RefreshButtons();
                       if (_checkSucceeded && !_updateAvailable)
-                      {
                           _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? "Проверка обновлений завершена. Игра найдена — можно запускать."
-                              : "Обновления проверены. Теперь выбери папку GTA San Andreas.";
-                      }
+                              ? "Папка GTA найдена. Можно установить клиент и подключиться."
+                              : "Выбери папку, где находится gta_sa.exe.";
                   };
 
-                  var copyButton = MakeButton(
-                      "КОПИРОВАТЬ IP",
-                      PanelColor,
-                      Color.FromArgb(61, 63, 77),
-                      White,
-                      170);
-
-                  copyButton.Click += (_, _) =>
+                  _copyButton = MakeButton("КОПИРОВАТЬ IP", PanelColor, Color.FromArgb(61, 63, 77), White, 165);
+                  _copyButton.Click += (_, _) =>
                   {
                       try
                       {
-                          Clipboard.SetText(ServerAddress);
-                          _status.Text = "Адрес сервера скопирован: " + ServerAddress;
+                          Clipboard.SetText(ServerHost + ":" + ServerPort);
+                          _status.Text = "Адрес сервера скопирован: " + ServerHost + ":" + ServerPort;
                       }
                       catch
                       {
-                          MessageBox.Show(
-                              "Не удалось скопировать адрес сервера.",
-                              "VEXORIUM",
-                              MessageBoxButtons.OK,
-                              MessageBoxIcon.Warning);
+                          MessageBox.Show("Не удалось скопировать адрес сервера.", "VEXORIUM",
+                              MessageBoxButtons.OK, MessageBoxIcon.Warning);
                       }
                   };
 
-                  _retryButton = MakeButton(
-                      "ПОВТОРИТЬ ПРОВЕРКУ",
-                      PanelColor,
-                      Color.FromArgb(61, 63, 77),
-                      White,
-                      205);
-
+                  _retryButton = MakeButton("ПОВТОРИТЬ ПРОВЕРКУ", PanelColor, Color.FromArgb(61, 63, 77), White, 205);
                   _retryButton.Visible = false;
-                  _retryButton.Click += async (_, _) => await CheckUpdates();
+                  _retryButton.Click += async (_, _) => await CheckUpdatesAsync();
 
                   buttons.Controls.Add(_playButton);
                   buttons.Controls.Add(_updateButton);
-                  buttons.Controls.Add(chooseButton);
-                  buttons.Controls.Add(copyButton);
+                  buttons.Controls.Add(_chooseButton);
+                  buttons.Controls.Add(_copyButton);
                   buttons.Controls.Add(_retryButton);
                   content.Controls.Add(buttons);
 
-                  var footer = new Label
+                  _progress = new ProgressBar
                   {
-                      Location = new Point(29, 530),
-                      Size = new Size(content.ClientSize.Width - 58, 28),
+                      Location = new Point(27, 582), Size = new Size(content.ClientSize.Width - 54, 18),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = "VEXORIUM ROLEPLAY   •   " + ServerAddress,
-                      Font = new Font("Segoe UI", 9F),
-                      ForeColor = Muted
+                      Minimum = 0, Maximum = 100, Value = 0, Visible = false,
+                      Style = ProgressBarStyle.Continuous
                   };
+                  content.Controls.Add(_progress);
 
-                  content.Controls.Add(footer);
+                  content.Controls.Add(new Label
+                  {
+                      Location = new Point(29, 612), Size = new Size(content.ClientSize.Width - 58, 26),
+                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                      Text = "VEXORIUM ROLEPLAY  •  " + ServerHost + ":" + ServerPort,
+                      Font = new Font("Segoe UI", 9F), ForeColor = Muted
+                  });
 
-                  Shown += async (_, _) => await CheckUpdates();
-
-                  // ВАЖНО: стартовая кнопка выключена, даже если GTA уже найдена.
-                  RefreshPlayState();
+                  Shown += async (_, _) => await CheckUpdatesAsync();
+                  RefreshButtons();
               }
 
               private static Control NewsCard(string title, string description, Color accentColor)
               {
                   var panel = new Panel
                   {
-                      Dock = DockStyle.Fill,
-                      BackColor = PanelColor,
-                      Margin = new Padding(0, 0, 10, 0),
-                      Padding = new Padding(0)
+                      Dock = DockStyle.Fill, BackColor = PanelColor,
+                      Margin = new Padding(0, 0, 10, 0), Padding = new Padding(0)
                   };
-
-                  var stripe = new Panel
+                  panel.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 4, BackColor = accentColor });
+                  panel.Controls.Add(new Label
                   {
-                      Dock = DockStyle.Left,
-                      Width = 4,
-                      BackColor = accentColor
-                  };
-
-                  var heading = new Label
-                  {
-                      Location = new Point(17, 22),
-                      Size = new Size(190, 29),
+                      Location = new Point(17, 18), Size = new Size(190, 27),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = title,
-                      Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                      ForeColor = White
-                  };
-
-                  var desc = new Label
+                      Text = title, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = White
+                  });
+                  panel.Controls.Add(new Label
                   {
-                      Location = new Point(17, 55),
-                      Size = new Size(200, 51),
+                      Location = new Point(17, 49), Size = new Size(205, 53),
                       Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = description,
-                      Font = new Font("Segoe UI", 9F),
-                      ForeColor = Muted
-                  };
-
-                  panel.Controls.Add(heading);
-                  panel.Controls.Add(desc);
-                  panel.Controls.Add(stripe);
-
+                      Text = description, Font = new Font("Segoe UI", 9F), ForeColor = Muted
+                  });
                   return panel;
               }
 
-              private RoundedButton MakeButton(
-                  string text,
-                  Color background,
-                  Color hover,
-                  Color foreground,
-                  int width)
+              private RoundedButton MakeButton(string text, Color background, Color hover, Color foreground, int width) => new RoundedButton
               {
-                  return new RoundedButton
-                  {
-                      Text = text,
-                      Width = width,
-                      Height = 49,
-                      CornerRadius = 15,
-                      BackColor = background,
-                      HoverColor = hover,
-                      ForeColor = foreground,
-                      Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                      Margin = new Padding(0, 0, 12, 12),
-                      TabStop = true
-                  };
+                  Text = text, Width = width, Height = 48, CornerRadius = 15,
+                  FlatStyle = FlatStyle.Flat, BackColor = background, HoverColor = hover,
+                  ForeColor = foreground, Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                  Margin = new Padding(0, 0, 11, 11), Cursor = Cursors.Hand
+              };
+
+              private void RefreshButtons()
+              {
+                  _playButton.Enabled = _checkSucceeded && !_checking && !_updateAvailable && !_busy && GameInstall.IsGameFolder(_gamePath);
+                  _playButton.Text = File.Exists(OpenMpExe) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ КЛИЕНТ";
+                  _updateButton.Enabled = !_busy;
+                  _chooseButton.Enabled = !_busy;
+                  _copyButton.Enabled = !_busy;
+                  _retryButton.Enabled = !_busy && !_checking;
               }
 
-              private void RefreshPlayState()
+              private static HttpClient CreateHttpClient(TimeSpan timeout)
               {
-                  // Запуск разрешается только при успешной проверке актуальной версии.
-                  _playButton.Enabled =
-                      !_checking &&
-                      _checkSucceeded &&
-                      !_updateAvailable &&
-                      GameInstall.IsGameFolder(_gamePath);
+                  var client = new HttpClient { Timeout = timeout };
+                  client.DefaultRequestHeaders.UserAgent.ParseAdd("VEXORIUM-Launcher");
+                  return client;
               }
 
-              private async Task CheckUpdates()
+              private async Task CheckUpdatesAsync()
               {
-                  if (_checking)
-                      return;
-
+                  if (_checking || _busy) return;
                   _checking = true;
                   _checkSucceeded = false;
                   _updateAvailable = false;
-
                   _updateButton.Visible = false;
-                  _updateButton.Enabled = true;
                   _retryButton.Visible = false;
-
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "Проверяем наличие обновлений…";
-
-                  RefreshPlayState();
+                  _status.Text = "Проверяем обновления VEXORIUM…";
+                  RefreshButtons();
 
                   try
                   {
-                      using var client = new HttpClient();
-                      client.Timeout = TimeSpan.FromSeconds(20);
-                      client.DefaultRequestHeaders.UserAgent.ParseAdd("VEXORIUM-Launcher");
-
+                      using var client = CreateHttpClient(TimeSpan.FromSeconds(20));
                       string json = await client.GetStringAsync(VersionUrl);
-
-                      using var document = JsonDocument.Parse(json);
-                      string remoteVersion =
-                          document.RootElement.GetProperty("version").GetString() ?? "";
-
-                      if (!Version.TryParse(remoteVersion, out Version? remote) ||
+                      using var doc = JsonDocument.Parse(json);
+                      string remoteText = doc.RootElement.GetProperty("version").GetString() ?? "";
+                      if (!Version.TryParse(remoteText, out Version? remote) ||
                           !Version.TryParse(CurrentVersion, out Version? local))
-                      {
                           throw new Exception("Неверный формат номера версии.");
-                      }
 
                       if (remote > local)
                       {
                           _updateAvailable = true;
                           _updateButton.Visible = true;
-
                           _status.ForeColor = Color.FromArgb(255, 150, 115);
-                          _status.Text =
-                              $"Доступна версия {remoteVersion}. Нажми «ОБНОВИТЬ», чтобы установить её.";
+                          _status.Text = $"Доступна версия {remoteText}. Нажми «ОБНОВИТЬ», чтобы продолжить.";
                       }
                       else
                       {
                           _checkSucceeded = true;
-
                           _status.ForeColor = Color.FromArgb(106, 218, 157);
                           _status.Text = GameInstall.IsGameFolder(_gamePath)
                               ? $"Версия {CurrentVersion} актуальна. GTA найдена — можно играть."
@@ -710,201 +534,244 @@ jobs:
                   {
                       _checkSucceeded = false;
                       _updateAvailable = false;
-
-                      _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text =
-                          "Не удалось проверить обновления. Проверь интернет и повтори проверку.";
-
                       _retryButton.Visible = true;
-
-                      // Подробности нужны для диагностики; запуск игры остаётся заблокированным.
+                      _status.ForeColor = Color.FromArgb(255, 145, 145);
+                      _status.Text = "Не удалось проверить обновления. Проверь интернет и нажми «ПОВТОРИТЬ ПРОВЕРКУ».";
                       _ = ex;
                   }
                   finally
                   {
                       _checking = false;
-                      RefreshPlayState();
+                      RefreshButtons();
                   }
               }
 
-              private async Task UpdateLauncher()
+              private async Task LaunchWithOpenMpAsync()
               {
-                  if (!_updateAvailable || _checking)
+                  if (!_checkSucceeded || _checking || _updateAvailable || _busy)
+                  {
+                      MessageBox.Show("Сначала дождись успешной проверки обновлений.", "VEXORIUM",
+                          MessageBoxButtons.OK, MessageBoxIcon.Information);
+                      RefreshButtons();
                       return;
+                  }
+                  if (!GameInstall.IsGameFolder(_gamePath))
+                  {
+                      MessageBox.Show("Сначала выбери папку, где находится gta_sa.exe.", "GTA San Andreas",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      return;
+                  }
 
-                  string currentExe = Application.ExecutablePath;
-                  string temporaryExe = Path.Combine(
-                      Path.GetTempPath(),
-                      "Vexorium-" + Guid.NewGuid().ToString("N") + ".exe");
+                  string nickname = _nickname.Text.Trim();
+                  if (nickname.Length < 3 || nickname.Length > 24)
+                  {
+                      MessageBox.Show("Введи никнейм длиной от 3 до 24 символов.", "Никнейм",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      _nickname.Focus();
+                      return;
+                  }
+                  GameInstall.SaveNickname(nickname);
 
-                  string updateScript = Path.Combine(
-                      Path.GetTempPath(),
-                      "VexoriumUpdate-" + Guid.NewGuid().ToString("N") + ".ps1");
-
-                  _updateButton.Enabled = false;
+                  _busy = true;
+                  _progress.Visible = true;
+                  _progress.Style = ProgressBarStyle.Marquee;
+                  _progress.MarqueeAnimationSpeed = 25;
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "Скачиваем новую версию лаунчера…";
+                  _status.Text = "Подготавливаем официальный клиент open.mp…";
+                  RefreshButtons();
 
                   try
                   {
-                      using var client = new HttpClient();
-                      client.Timeout = TimeSpan.FromMinutes(5);
-                      client.DefaultRequestHeaders.UserAgent.ParseAdd("VEXORIUM-Launcher");
-
-                      using var response = await client.GetAsync(
-                          DownloadUrl,
-                          HttpCompletionOption.ResponseHeadersRead);
-
-                      response.EnsureSuccessStatusCode();
-
-                      await using (var input = await response.Content.ReadAsStreamAsync())
-                      await using (var output = File.Create(temporaryExe))
-                      {
-                          await input.CopyToAsync(output);
-                      }
-
-                      if (!File.Exists(temporaryExe) ||
-                          new FileInfo(temporaryExe).Length < 1_000_000)
-                      {
-                          throw new Exception("Скачанный файл слишком маленький.");
-                      }
-
-                      // Проверяем, что скачано Windows-приложение, а не HTML-страница.
-                      byte[] signature = new byte[2];
-
-                      await using (var check = File.OpenRead(temporaryExe))
-                      {
-                          if (await check.ReadAsync(signature.AsMemory(0, 2)) != 2 ||
-                              signature[0] != (byte)'M' ||
-                              signature[1] != (byte)'Z')
-                          {
-                              throw new Exception("Скачанный файл не похож на Windows EXE.");
-                          }
-                      }
-
-                      int launcherPid = Environment.ProcessId;
-
-                      string psScript =
-                          "$targetPid = " + launcherPid + "\r\n" +
-                          "$download = " + PsQuote(temporaryExe) + "\r\n" +
-                          "$target = " + PsQuote(currentExe) + "\r\n" +
-                          "while (Get-Process -Id $targetPid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }\r\n" +
-                          "try {\r\n" +
-                          "  Copy-Item -LiteralPath $download -Destination $target -Force -ErrorAction Stop\r\n" +
-                          "  Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue\r\n" +
-                          "  Start-Process -FilePath $target\r\n" +
-                          "} catch {\r\n" +
-                          "  Add-Type -AssemblyName System.Windows.Forms\r\n" +
-                          "  [System.Windows.Forms.MessageBox]::Show('Не удалось заменить файл лаунчера. Попробуй перенести его в папку, доступную для записи.', 'VEXORIUM — ошибка обновления') | Out-Null\r\n" +
-                          "}\r\n" +
-                          "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\r\n";
-
-                      await File.WriteAllTextAsync(updateScript, psScript, Encoding.UTF8);
+                      await EnsureOpenMpLauncherAsync();
+                      _progress.Visible = false;
 
                       var startInfo = new ProcessStartInfo
                       {
+                          FileName = OpenMpExe,
+                          WorkingDirectory = OpenMpDirectory,
+                          UseShellExecute = true
+                      };
+                      startInfo.ArgumentList.Add("-h");
+                      startInfo.ArgumentList.Add(ServerHost);
+                      startInfo.ArgumentList.Add("-p");
+                      startInfo.ArgumentList.Add(ServerPort);
+                      startInfo.ArgumentList.Add("-n");
+                      startInfo.ArgumentList.Add(nickname);
+                      startInfo.ArgumentList.Add("-g");
+                      startInfo.ArgumentList.Add(_gamePath!);
+
+                      Process.Start(startInfo);
+                      _status.ForeColor = Color.FromArgb(106, 218, 157);
+                      _status.Text = "Клиент open.mp запущен. При первом запуске он может подготовить нужную версию multiplayer-клиента.";
+                  }
+                  catch (Exception ex)
+                  {
+                      _progress.Visible = false;
+                      _status.ForeColor = Color.FromArgb(255, 145, 145);
+                      _status.Text = "Не удалось подготовить клиент open.mp.";
+                      MessageBox.Show("Не удалось установить или запустить клиент open.mp:\n" + ex.Message,
+                          "Ошибка клиента", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                  }
+                  finally
+                  {
+                      _busy = false;
+                      RefreshButtons();
+                  }
+              }
+
+              private async Task EnsureOpenMpLauncherAsync()
+              {
+                  Directory.CreateDirectory(OpenMpDirectory);
+                  using var client = CreateHttpClient(TimeSpan.FromMinutes(5));
+
+                  string releaseJson = await client.GetStringAsync(OpenMpReleaseApi);
+                  using var releaseDoc = JsonDocument.Parse(releaseJson);
+                  string tag = releaseDoc.RootElement.GetProperty("tag_name").GetString() ?? "";
+                  if (string.IsNullOrWhiteSpace(tag)) throw new Exception("GitHub не сообщил версию open.mp.");
+
+                  string? downloadUrl = null;
+                  foreach (JsonElement asset in releaseDoc.RootElement.GetProperty("assets").EnumerateArray())
+                  {
+                      if (string.Equals(asset.GetProperty("name").GetString(), "omp-launcher.exe", StringComparison.OrdinalIgnoreCase))
+                      {
+                          downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                          break;
+                      }
+                  }
+                  if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? assetUri) || assetUri.Host != "github.com")
+                      throw new Exception("Не найден официальный файл omp-launcher.exe в GitHub Releases.");
+
+                  string savedTag = "";
+                  try { if (File.Exists(OpenMpTagFile)) savedTag = File.ReadAllText(OpenMpTagFile).Trim(); } catch { }
+                  if (File.Exists(OpenMpExe) && savedTag == tag) return;
+
+                  _status.Text = "Скачиваем официальный open.mp Launcher " + tag + "…";
+                  _progress.Visible = true;
+                  _progress.Style = ProgressBarStyle.Continuous;
+                  _progress.Value = 0;
+
+                  string tempFile = OpenMpExe + ".download";
+                  try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+
+                  using var response = await client.GetAsync(assetUri, HttpCompletionOption.ResponseHeadersRead);
+                  response.EnsureSuccessStatusCode();
+                  long? totalBytes = response.Content.Headers.ContentLength;
+                  await using (var input = await response.Content.ReadAsStreamAsync())
+                  await using (var output = new FileStream(tempFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                  {
+                      byte[] buffer = new byte[81920];
+                      long downloaded = 0;
+                      int read;
+                      while ((read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+                      {
+                          await output.WriteAsync(buffer.AsMemory(0, read));
+                          downloaded += read;
+                          if (totalBytes.HasValue && totalBytes.Value > 0)
+                          {
+                              int percent = (int)Math.Clamp(downloaded * 100L / totalBytes.Value, 0L, 100L);
+                              _progress.Value = percent;
+                              _status.Text = $"Загрузка open.mp {tag}: {percent}% ({downloaded / 1024 / 1024} МБ)";
+                          }
+                      }
+                  }
+
+                  var info = new FileInfo(tempFile);
+                  if (!info.Exists || info.Length < 1_000_000)
+                      throw new Exception("Скачанный файл слишком маленький — установка отменена.");
+
+                  byte[] signature = new byte[2];
+                  await using (var test = File.OpenRead(tempFile))
+                  {
+                      if (await test.ReadAsync(signature.AsMemory(0, 2)) != 2 || signature[0] != (byte)'M' || signature[1] != (byte)'Z')
+                          throw new Exception("Скачанный файл не распознан как Windows EXE.");
+                  }
+
+                  File.Move(tempFile, OpenMpExe, true);
+                  File.WriteAllText(OpenMpTagFile, tag);
+                  _status.Text = "Клиент open.mp подготовлен: " + tag;
+                  _playButton.Text = "▶  ИГРАТЬ";
+              }
+
+              private async Task UpdateLauncherAsync()
+              {
+                  if (_busy) return;
+                  _busy = true;
+                  _updateButton.Enabled = false;
+                  _status.Text = "Скачиваем обновление VEXORIUM…";
+
+                  string currentExe = Application.ExecutablePath;
+                  string tempExe = Path.Combine(Path.GetTempPath(), "Vexorium-" + Guid.NewGuid().ToString("N") + ".exe");
+                  string script = Path.Combine(Path.GetTempPath(), "VexoriumUpdate-" + Guid.NewGuid().ToString("N") + ".ps1");
+                  try
+                  {
+                      using var client = CreateHttpClient(TimeSpan.FromMinutes(5));
+                      using var response = await client.GetAsync(LauncherDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                      response.EnsureSuccessStatusCode();
+                      await using (var input = await response.Content.ReadAsStreamAsync())
+                      await using (var output = File.Create(tempExe))
+                          await input.CopyToAsync(output);
+
+                      if (!File.Exists(tempExe) || new FileInfo(tempExe).Length < 1_000_000)
+                          throw new Exception("Скачанный файл слишком маленький.");
+
+                      byte[] signature = new byte[2];
+                      await using (var test = File.OpenRead(tempExe))
+                      {
+                          if (await test.ReadAsync(signature.AsMemory(0, 2)) != 2 || signature[0] != (byte)'M' || signature[1] != (byte)'Z')
+                              throw new Exception("Скачанный файл не распознан как Windows EXE.");
+                      }
+
+                      int pid = Environment.ProcessId;
+                      string ps = "$pidToWait = " + pid + "\r\n" +
+                          "$download = " + PsQuote(tempExe) + "\r\n" +
+                          "$target = " + PsQuote(currentExe) + "\r\n" +
+                          "while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }\r\n" +
+                          "try { Copy-Item -LiteralPath $download -Destination $target -Force -ErrorAction Stop; Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue; Start-Process -FilePath $target } catch { Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('Не удалось заменить файл. Перемести лаунчер в папку, доступную для записи.', 'VEXORIUM — ошибка обновления') | Out-Null }\r\n" +
+                          "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\r\n";
+
+                      await File.WriteAllTextAsync(script, ps, Encoding.UTF8);
+                      Process.Start(new ProcessStartInfo
+                      {
                           FileName = "powershell.exe",
-                          Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + updateScript + "\"",
+                          Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\"",
                           UseShellExecute = false,
                           CreateNoWindow = true,
                           WindowStyle = ProcessWindowStyle.Hidden
-                      };
-
-                      Process.Start(startInfo);
-
-                      MessageBox.Show(
-                          "Обновление скачано. Лаунчер закроется и запустится снова.",
-                          "VEXORIUM ROLEPLAY",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Information);
-
+                      });
+                      MessageBox.Show("Обновление скачано. Лаунчер закроется и запустится снова.", "VEXORIUM",
+                          MessageBoxButtons.OK, MessageBoxIcon.Information);
                       Close();
                   }
                   catch (Exception ex)
                   {
-                      try
-                      {
-                          if (File.Exists(temporaryExe))
-                              File.Delete(temporaryExe);
-                      }
-                      catch { }
-
-                      _updateButton.Enabled = true;
+                      try { if (File.Exists(tempExe)) File.Delete(tempExe); } catch { }
                       _status.ForeColor = Color.FromArgb(255, 145, 145);
                       _status.Text = "Не удалось скачать обновление.";
-
-                      MessageBox.Show(
-                          "Не удалось обновить лаунчер:\n" + ex.Message,
-                          "VEXORIUM — ошибка обновления",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Error);
+                      _updateButton.Enabled = true;
+                      MessageBox.Show("Не удалось обновить лаунчер:\n" + ex.Message, "Ошибка обновления",
+                          MessageBoxButtons.OK, MessageBoxIcon.Error);
+                  }
+                  finally
+                  {
+                      _busy = false;
+                      RefreshButtons();
                   }
               }
 
-              private static string PsQuote(string value) =>
-                  "'" + value.Replace("'", "''") + "'";
+              private static string PsQuote(string value) => "'" + value.Replace("'", "''") + "'";
 
-              private void LaunchGame()
+              private static Control NewsCard(string title, string description, Color accentColor)
               {
-                  // Дополнительная защита — одного состояния кнопки недостаточно.
-                  if (_checking || !_checkSucceeded || _updateAvailable)
-                  {
-                      MessageBox.Show(
-                          "Сначала дождись успешной проверки обновлений.",
-                          "VEXORIUM ROLEPLAY",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Information);
-                      RefreshPlayState();
-                      return;
-                  }
-
-                  if (!GameInstall.IsGameFolder(_gamePath))
-                  {
-                      MessageBox.Show(
-                          "Сначала выбери папку, где находится gta_sa.exe.",
-                          "GTA San Andreas",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Warning);
-                      RefreshPlayState();
-                      return;
-                  }
-
-                  string sampPath = Path.Combine(_gamePath!, "samp.exe");
-
-                  if (!File.Exists(sampPath))
-                  {
-                      MessageBox.Show(
-                          "В выбранной папке не найден samp.exe. Установи совместимый клиент SA-MP отдельно.",
-                          "Не найден SA-MP",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Warning);
-                      return;
-                  }
-
-                  try
-                  {
-                      Process.Start(new ProcessStartInfo
-                      {
-                          FileName = sampPath,
-                          Arguments = ServerAddress,
-                          WorkingDirectory = _gamePath!,
-                          UseShellExecute = true
-                      });
-                  }
-                  catch (Exception ex)
-                  {
-                      MessageBox.Show(
-                          "Не удалось запустить SA-MP:\n" + ex.Message,
-                          "Ошибка запуска",
-                          MessageBoxButtons.OK,
-                          MessageBoxIcon.Error);
-                  }
+                  var panel = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Margin = new Padding(0, 0, 10, 0), Padding = Padding.Empty };
+                  panel.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 4, BackColor = accentColor });
+                  panel.Controls.Add(new Label { Location = new Point(17, 18), Size = new Size(190, 27), Text = title, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = White });
+                  panel.Controls.Add(new Label { Location = new Point(17, 49), Size = new Size(205, 53), Text = description, Font = new Font("Segoe UI", 9F), ForeColor = Muted });
+                  return panel;
               }
           }
           '@
 
-          $launcherVersion = $env:LAUNCHER_VERSION
-          $sourceContent = $sourceContent.Replace('__LAUNCHER_VERSION__', $launcherVersion)
+          $sourceContent = $sourceContent.Replace('__LAUNCHER_VERSION__', $env:LAUNCHER_VERSION)
           Set-Content -Encoding utf8 -Path .\src\Program.cs -Value $sourceContent
 
       - name: Publish Windows launcher
@@ -935,7 +802,7 @@ jobs:
 
       - name: Publish GitHub Release
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: VEXORIUM Launcher ${{ steps.version.outputs.version }}
