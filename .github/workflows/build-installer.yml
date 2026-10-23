@@ -760,14 +760,6 @@ jobs:
 
               private static string PsQuote(string value) => "'" + value.Replace("'", "''") + "'";
 
-              private static Control NewsCard(string title, string description, Color accentColor)
-              {
-                  var panel = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Margin = new Padding(0, 0, 10, 0), Padding = Padding.Empty };
-                  panel.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 4, BackColor = accentColor });
-                  panel.Controls.Add(new Label { Location = new Point(17, 18), Size = new Size(190, 27), Text = title, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = White });
-                  panel.Controls.Add(new Label { Location = new Point(17, 49), Size = new Size(205, 53), Text = description, Font = new Font("Segoe UI", 9F), ForeColor = Muted });
-                  return panel;
-              }
           }
           '@
 
