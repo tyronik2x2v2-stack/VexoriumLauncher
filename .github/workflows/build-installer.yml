@@ -230,8 +230,8 @@ jobs:
 
           internal sealed class LauncherForm : Form
           {
-              private const string ServerHost = "ams-game-02.centnodes.net";
-              private const string ServerPort = "40065";
+              private const string ServerHost = "signaling-resumed.tun.ply.gg";
+              private const string ServerPort = "24231";
               private const string VersionUrl = "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/version.json";
               private const string LauncherDownloadUrl = "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
               private const string CurrentVersion = "__LAUNCHER_VERSION__";
