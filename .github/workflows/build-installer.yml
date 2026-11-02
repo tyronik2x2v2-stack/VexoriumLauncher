@@ -288,14 +288,39 @@ jobs:
                   account.Controls.Add(_nickname); header.Controls.Add(account);
                   header.Resize += (_, _) => account.Left = header.ClientSize.Width - account.Width - 22;
 
-                  var body = new Panel { Dock = DockStyle.Fill, BackColor = Background };
-                  var sidebar = new Panel { Dock = DockStyle.Left, Width = 210, BackColor = Color.FromArgb(10, 11, 15) };
+                  var body = new TableLayoutPanel
+                  {
+                      Dock = DockStyle.Fill, BackColor = Background, ColumnCount = 2, RowCount = 1,
+                      Margin = Padding.Empty, Padding = Padding.Empty
+                  };
+                  body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210F));
+                  body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+                  body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+                  var sidebar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(10, 11, 15), Margin = Padding.Empty };
+                  var brand = new Label
+                  {
+                      Text = "♛\\nVEXORIUM ROLEPLAY", Location = new Point(0, 0), Height = 92,
+                      ForeColor = Color.FromArgb(190, 190, 198), Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                      TextAlign = ContentAlignment.MiddleCenter, BackColor = Color.FromArgb(10, 11, 15),
+                      Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+                  };
                   var navPanel = new FlowLayoutPanel
                   {
-                      Dock = DockStyle.Top, Height = 430, FlowDirection = FlowDirection.TopDown,
+                      Location = new Point(0, 0), FlowDirection = FlowDirection.TopDown,
                       WrapContents = false, AutoScroll = true, Padding = new Padding(12, 24, 12, 8),
-                      BackColor = Color.FromArgb(10, 11, 15)
+                      BackColor = Color.FromArgb(10, 11, 15), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
                   };
+                  sidebar.Controls.Add(brand);
+                  sidebar.Controls.Add(navPanel);
+                  void LayoutSidebar()
+                  {
+                      brand.SetBounds(0, Math.Max(0, sidebar.ClientSize.Height - 92), sidebar.ClientSize.Width, 92);
+                      navPanel.SetBounds(0, 0, sidebar.ClientSize.Width, Math.Max(0, sidebar.ClientSize.Height - 92));
+                  }
+                  sidebar.Resize += (_, _) => LayoutSidebar();
+                  LayoutSidebar();
+
                   string[] nav = { "⌂   ГЛАВНАЯ", "▤   НОВОСТИ", "⟳   ОБНОВЛЕНИЯ", "⚙   НАСТРОЙКИ", "♙   АККАУНТ", "?   ПОМОЩЬ" };
                   for (int i = 0; i < nav.Length; i++)
                   {
@@ -313,15 +338,12 @@ jobs:
                       };
                       navPanel.Controls.Add(item);
                   }
-                  sidebar.Controls.Add(navPanel);
-                  sidebar.Controls.Add(new Label { Text = "♛\nVEXORIUM ROLEPLAY", Dock = DockStyle.Bottom, Height = 100, ForeColor = Color.FromArgb(190, 190, 198), Font = new Font("Segoe UI", 12F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter });
 
-                  var content = new Panel { Dock = DockStyle.Fill, BackColor = Background, AutoScroll = true, Padding = new Padding(22, 18, 22, 12) };
-                  body.Controls.Add(sidebar);
-                  body.Controls.Add(content);
-                  sidebar.BringToFront();
-                  Controls.Add(body); Controls.Add(header);
-
+                  var content = new Panel { Dock = DockStyle.Fill, BackColor = Background, AutoScroll = true, Padding = new Padding(22, 18, 22, 12), Margin = Padding.Empty };
+                  body.Controls.Add(sidebar, 0, 0);
+                  body.Controls.Add(content, 1, 0);
+                  Controls.Add(body);
+                  Controls.Add(header);
                   var hero = new Panel { Location = new Point(22, 18), Size = new Size(900, 310), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(35, 17, 22) };
                   hero.Paint += (_, e) =>
                   {
