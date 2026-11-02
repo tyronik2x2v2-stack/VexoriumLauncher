@@ -443,7 +443,7 @@ jobs:
               private void RefreshButtons()
               {
                   _playButton.Enabled = _checkSucceeded && !_checking && !_updateAvailable && !_busy && GameInstall.IsGameFolder(_gamePath);
-                  _playButton.Text = File.Exists(OpenMpExe) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ КЛИЕНТ";
+                  _playButton.Text = GameInstall.IsGameFolder(_gamePath) && File.Exists(Path.Combine(_gamePath!, "samp.exe")) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ SA-MP 0.3.7 R1";
                   _updateButton.Enabled = !_busy;
                   _chooseButton.Enabled = !_busy;
                   _retryButton.Enabled = !_busy && !_checking;
@@ -490,7 +490,7 @@ jobs:
                           _checkSucceeded = true;
                           _status.ForeColor = Color.FromArgb(106, 218, 157);
                           _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? $"Версия {CurrentVersion} актуальна. GTA найдена — можно играть."
+                              ? $"Версия {CurrentVersion} актуальна. GTA найдена. Для игры нужен SA-MP 0.3.7 R1."
                               : $"Версия {CurrentVersion} актуальна. Выбери папку GTA San Andreas.";
                       }
                   }
@@ -526,6 +526,14 @@ jobs:
                       return;
                   }
 
+                  string sampExe = Path.Combine(_gamePath!, "samp.exe");
+                  if (!File.Exists(sampExe))
+                  {
+                      MessageBox.Show("В выбранной папке не найден samp.exe. Установи именно SA-MP 0.3.7 R1 в папку GTA San Andreas, затем нажми «ПОВТОРИТЬ ПРОВЕРКУ».\n\nopen.mp и обычный gta_sa.exe здесь не используются.",
+                          "Нужен SA-MP 0.3.7 R1", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      return;
+                  }
+
                   string nickname = _nickname.Text.Trim();
                   if (nickname.Length < 3 || nickname.Length > 24)
                   {
@@ -537,58 +545,44 @@ jobs:
                   GameInstall.SaveNickname(nickname);
 
                   _busy = true;
-                  _progress.Visible = true;
-                  _progress.Style = ProgressBarStyle.Marquee;
-                  _progress.MarqueeAnimationSpeed = 25;
+                  _progress.Visible = false;
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "Подготавливаем официальный клиент open.mp…";
+                  _status.Text = "Запускаем SA-MP 0.3.7 R1…";
                   RefreshButtons();
 
                   try
                   {
-                      await EnsureOpenMpLauncherAsync();
-                      _progress.Visible = false;
+                      using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\\SAMP"))
+                      {
+                          key?.SetValue("PlayerName", nickname, Microsoft.Win32.RegistryValueKind.String);
+                      }
 
-                      // Official open.mp CLI: -h HOST -p PORT -n NAME -g GAME_DIRECTORY.
-                      // Run from the GTA folder so the game resolves its local files correctly.
                       var startInfo = new ProcessStartInfo
                       {
-                          FileName = OpenMpExe,
+                          FileName = sampExe,
                           WorkingDirectory = _gamePath!,
                           UseShellExecute = false
                       };
-                      startInfo.ArgumentList.Add("-h");
-                      startInfo.ArgumentList.Add(ServerHost);
-                      startInfo.ArgumentList.Add("-p");
-                      startInfo.ArgumentList.Add(ServerPort);
-                      startInfo.ArgumentList.Add("-n");
-                      startInfo.ArgumentList.Add(nickname);
-                      startInfo.ArgumentList.Add("-g");
-                      startInfo.ArgumentList.Add(_gamePath!);
+                      startInfo.ArgumentList.Add(ServerHost + ":" + ServerPort);
 
-                      using Process? launcherProcess = Process.Start(startInfo);
-                      if (launcherProcess == null)
-                          throw new Exception("Windows не смог запустить официальный open.mp Launcher.");
+                      Process? sampProcess = Process.Start(startInfo);
+                      if (sampProcess == null)
+                          throw new Exception("Windows не смог запустить samp.exe.");
 
                       await Task.Delay(2500);
                       Process[] gameProcesses = Process.GetProcessesByName("gta_sa");
                       if (gameProcesses.Length == 0)
-                      {
-                          if (launcherProcess.HasExited)
-                              throw new Exception("open.mp Launcher завершился, но GTA не запустилась. Возможно, в папке игры отсутствует совместимый клиент мультиплеера.");
-                          throw new Exception("open.mp Launcher запущен, но процесс GTA San Andreas не появился.");
-                      }
+                          throw new Exception("SA-MP не запустил GTA. Проверь, что установлен клиент SA-MP 0.3.7 R1 именно в выбранную папку GTA San Andreas.");
 
-                      WriteLaunchLog($"Запуск open.mp: host={ServerHost}, port={ServerPort}, nickname={nickname}, game={_gamePath}, gtaProcesses={gameProcesses.Length}");
+                      WriteLaunchLog($"Запуск SA-MP 0.3.7 R1: host={ServerHost}, port={ServerPort}, nickname={nickname}, client={sampExe}, gtaProcesses={gameProcesses.Length}");
                       _status.ForeColor = Color.FromArgb(235, 190, 93);
-                      _status.Text = "Клиент запущен. Ожидаем подключение к VEXORIUM…";
+                      _status.Text = "SA-MP 0.3.7 R1 запущен. Проверяй подключение к VEXORIUM.";
                   }
                   catch (Exception ex)
                   {
-                      _progress.Visible = false;
                       _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text = "Не удалось подготовить клиент open.mp.";
-                      MessageBox.Show("Не удалось установить или запустить клиент open.mp:\n" + ex.Message,
+                      _status.Text = "Не удалось запустить SA-MP 0.3.7 R1.";
+                      MessageBox.Show("Ошибка запуска SA-MP 0.3.7 R1:\n" + ex.Message,
                           "Ошибка клиента", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
                   finally
@@ -680,7 +674,7 @@ jobs:
 
                   File.Move(tempFile, OpenMpExe, true);
                   File.WriteAllText(OpenMpTagFile, tag);
-                  _status.Text = "Клиент open.mp подготовлен: " + tag;
+                  _status.Text = "Клиент SA-MP подготовлен: " + tag;
                   _playButton.Text = "▶  ИГРАТЬ";
               }
 
