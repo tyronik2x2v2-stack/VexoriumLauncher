@@ -552,7 +552,7 @@ jobs:
 
                   try
                   {
-                      using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\\SAMP"))
+                      using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\SAMP"))
                       {
                           key?.SetValue("PlayerName", nickname, Microsoft.Win32.RegistryValueKind.String);
                       }
