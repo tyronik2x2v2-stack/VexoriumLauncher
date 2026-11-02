@@ -596,7 +596,7 @@ jobs:
               private async Task DownloadAndInstallSampAsync()
               {
                   // The official SA-MP page links this exact R1 installer mirror.
-                  const string installerUrl = "https://files.sa-mp.cc/sa-mp-0.3.7-install.exe";
+                  const string installerUrl = "https://files.samp-client.ru/sa-mp-0.3.7-install.exe";
                   string tempInstaller = Path.Combine(Path.GetTempPath(), "Vexorium-SAMP-0.3.7-R1-" + Guid.NewGuid().ToString("N") + ".exe");
 
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
