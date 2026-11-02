@@ -595,11 +595,12 @@ jobs:
 
               private async Task DownloadAndInstallSampAsync()
               {
+                  // The official SA-MP page links this exact R1 installer mirror.
                   const string installerUrl = "https://files.sa-mp.cc/sa-mp-0.3.7-install.exe";
                   string tempInstaller = Path.Combine(Path.GetTempPath(), "Vexorium-SAMP-0.3.7-R1-" + Guid.NewGuid().ToString("N") + ".exe");
 
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "SA-MP 0.3.7 R1 не найден. Скачиваем официальный установщик…";
+                  _status.Text = "SA-MP 0.3.7 R1 не найден. Скачиваем установщик…";
                   _progress.Visible = true;
                   _progress.Style = ProgressBarStyle.Marquee;
 
@@ -607,51 +608,54 @@ jobs:
                   {
                       using var client = CreateHttpClient(TimeSpan.FromMinutes(5));
                       using var response = await client.GetAsync(installerUrl, HttpCompletionOption.ResponseHeadersRead);
-                      response.EnsureSuccessStatusCode();
+                      if (!response.IsSuccessStatusCode)
+                          throw new Exception("Сервер загрузки SA-MP ответил: " + (int)response.StatusCode + " " + response.ReasonPhrase);
 
                       await using (var input = await response.Content.ReadAsStreamAsync())
-                      await using (var output = new FileStream(tempInstaller, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                      await using (var output = new FileStream(tempInstaller, FileMode.Create, FileAccess.Write, FileShare.None))
                       {
                           await input.CopyToAsync(output);
+                          await output.FlushAsync();
                       }
 
                       var downloaded = new FileInfo(tempInstaller);
                       if (!downloaded.Exists || downloaded.Length < 5_000_000)
-                          throw new Exception("Установщик SA-MP скачался не полностью или имеет неверный размер.");
+                          throw new Exception("Сервер вернул неполный файл. Загрузка отменена.");
 
                       byte[] signature = new byte[2];
                       await using (var check = File.OpenRead(tempInstaller))
                       {
                           if (await check.ReadAsync(signature.AsMemory(0, 2)) != 2 ||
                               signature[0] != (byte)'M' || signature[1] != (byte)'Z')
-                              throw new Exception("Скачанный установщик не распознан как Windows EXE.");
+                              throw new Exception("Вместо установщика получен неверный файл. Попробуй позже.");
                       }
 
-                      _status.Text = "Устанавливаем SA-MP 0.3.7 R1 в папку GTA San Andreas…";
+                      _status.Text = "Открываем установщик SA-MP 0.3.7 R1. В нём выбери папку с gta_sa.exe…";
+                      // Run the vendor installer normally. Do not pass undocumented silent switches:
+                      // they can make setup exit without installing samp.exe.
                       var setup = new ProcessStartInfo
                       {
                           FileName = tempInstaller,
                           WorkingDirectory = Path.GetTempPath(),
-                          UseShellExecute = true,
-                          Verb = "runas"
+                          UseShellExecute = true
                       };
-                      setup.ArgumentList.Add("/S");
-                      setup.ArgumentList.Add("/D=" + _gamePath);
 
                       using Process? installer = Process.Start(setup);
                       if (installer == null)
-                          throw new Exception("Windows не смог запустить установщик SA-MP.");
+                          throw new Exception("Windows не смог открыть установщик SA-MP.");
 
                       await installer.WaitForExitAsync();
-                      if (installer.ExitCode != 0)
-                          throw new Exception("Установщик SA-MP завершился с кодом " + installer.ExitCode + ".");
 
-                      await Task.Delay(700);
-                      if (!File.Exists(Path.Combine(_gamePath!, "samp.exe")))
-                          throw new Exception("Установщик завершился, но samp.exe не найден в выбранной папке GTA.");
+                      string installedClient = Path.Combine(_gamePath!, "samp.exe");
+                      if (!File.Exists(installedClient))
+                          throw new Exception("Установщик закрылся, но samp.exe не найден. В окне установки укажи именно папку, где лежит gta_sa.exe, и заверши установку.");
 
-                      WriteLaunchLog("SA-MP 0.3.7 R1 downloaded and installed into " + _gamePath);
+                      WriteLaunchLog("SA-MP 0.3.7 R1 installer completed into " + _gamePath);
                       _status.Text = "SA-MP 0.3.7 R1 установлен. Запускаем игру…";
+                  }
+                  catch (HttpRequestException ex)
+                  {
+                      throw new Exception("Не удалось скачать SA-MP. Проверь интернет или блокировку загрузки антивирусом. " + ex.Message, ex);
                   }
                   finally
                   {
