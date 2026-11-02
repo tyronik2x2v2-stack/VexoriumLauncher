@@ -549,11 +549,12 @@ jobs:
                       await EnsureOpenMpLauncherAsync();
                       _progress.Visible = false;
 
+                      // Official open.mp CLI: -h HOST -p PORT -n NAME -g GAME_DIRECTORY.
+                      // Run from the GTA folder so the game resolves its local files correctly.
                       var startInfo = new ProcessStartInfo
                       {
                           FileName = OpenMpExe,
-                          WorkingDirectory = OpenMpDirectory,
-                          // Use direct process launch so all -h/-p/-n/-g arguments are passed to open.mp.
+                          WorkingDirectory = _gamePath!,
                           UseShellExecute = false
                       };
                       startInfo.ArgumentList.Add("-h");
@@ -565,9 +566,22 @@ jobs:
                       startInfo.ArgumentList.Add("-g");
                       startInfo.ArgumentList.Add(_gamePath!);
 
-                      Process.Start(startInfo);
-                      _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Установка завершена, удачной игры!";
+                      using Process? launcherProcess = Process.Start(startInfo);
+                      if (launcherProcess == null)
+                          throw new Exception("Windows не смог запустить официальный open.mp Launcher.");
+
+                      await Task.Delay(2500);
+                      Process[] gameProcesses = Process.GetProcessesByName("gta_sa");
+                      if (gameProcesses.Length == 0)
+                      {
+                          if (launcherProcess.HasExited)
+                              throw new Exception("open.mp Launcher завершился, но GTA не запустилась. Возможно, в папке игры отсутствует совместимый клиент мультиплеера.");
+                          throw new Exception("open.mp Launcher запущен, но процесс GTA San Andreas не появился.");
+                      }
+
+                      WriteLaunchLog($"Запуск open.mp: host={ServerHost}, port={ServerPort}, nickname={nickname}, game={_gamePath}, gtaProcesses={gameProcesses.Length}");
+                      _status.ForeColor = Color.FromArgb(235, 190, 93);
+                      _status.Text = "Клиент запущен. Ожидаем подключение к VEXORIUM…";
                   }
                   catch (Exception ex)
                   {
@@ -582,6 +596,19 @@ jobs:
                       _busy = false;
                       RefreshButtons();
                   }
+              }
+
+              private static void WriteLaunchLog(string message)
+              {
+                  try
+                  {
+                      string directory = Path.Combine(
+                          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
+                      Directory.CreateDirectory(directory);
+                      File.AppendAllText(Path.Combine(directory, "launcher.log"),
+                          DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
+                  }
+                  catch { }
               }
 
               private async Task EnsureOpenMpLauncherAsync()
