@@ -269,179 +269,106 @@ jobs:
               public LauncherForm(string? gamePath)
               {
                   _gamePath = GameInstall.IsGameFolder(gamePath) ? gamePath : null;
-                  Text = "VEXORIUM ROLEPLAY";
-                  StartPosition = FormStartPosition.CenterScreen;
-                  MinimumSize = new Size(900, 670);
-                  Size = new Size(1080, 735);
-                  BackColor = Background;
-                  ForeColor = White;
-                  Font = new Font("Segoe UI", 10F);
+                  Text = "VEXORIUM ROLEPLAY"; StartPosition = FormStartPosition.CenterScreen;
+                  MinimumSize = new Size(1000, 700); Size = new Size(1180, 790);
+                  BackColor = Background; ForeColor = White; Font = new Font("Segoe UI", 10F);
+                  DoubleBuffered = true;
 
-                  var header = new Panel { Dock = DockStyle.Top, Height = 94, BackColor = HeaderColor };
-                  header.Controls.Add(new Label
+                  var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = HeaderColor };
+                  header.Controls.Add(new Label { Text = "V", Location = new Point(22, 5), Size = new Size(42, 58), ForeColor = Red, Font = new Font("Segoe UI", 32F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter });
+                  header.Controls.Add(new Label { Text = "VEXORIUM", Location = new Point(68, 12), Size = new Size(190, 29), ForeColor = White, Font = new Font("Segoe UI", 17F, FontStyle.Bold) });
+                  header.Controls.Add(new Label { Text = "ROLEPLAY  /  PC LAUNCHER", Location = new Point(70, 42), Size = new Size(220, 18), ForeColor = Muted, Font = new Font("Segoe UI", 8F, FontStyle.Bold) });
+
+                  var account = new Panel { Size = new Size(320, 52), Location = new Point(Width - 365, 10), Anchor = AnchorStyles.Top | AnchorStyles.Right, BackColor = Color.FromArgb(34, 25, 29) };
+                  account.Paint += (_, e) => { e.Graphics.SmoothingMode = SmoothingMode.AntiAlias; using var p = CreateRoundRect(new Rectangle(0, 0, account.Width - 1, account.Height - 1), 18); using var b = new SolidBrush(account.BackColor); using var pen = new Pen(Color.FromArgb(120, Red)); e.Graphics.FillPath(b, p); e.Graphics.DrawPath(pen, p); };
+                  account.Resize += (_, _) => account.Invalidate();
+                  account.Controls.Add(new Label { Text = "◉", Location = new Point(12, 8), Size = new Size(36, 36), ForeColor = Red, Font = new Font("Segoe UI", 21F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter });
+                  account.Controls.Add(new Label { Text = "ВАШ НИКНЕЙМ", Location = new Point(55, 5), Size = new Size(230, 15), ForeColor = Muted, Font = new Font("Segoe UI", 8F, FontStyle.Bold) });
+                  _nickname = new TextBox { Location = new Point(53, 21), Size = new Size(245, 25), Text = GameInstall.ReadNickname(), MaxLength = 24, BorderStyle = BorderStyle.None, BackColor = account.BackColor, ForeColor = White, Font = new Font("Segoe UI", 11F, FontStyle.Bold) };
+                  account.Controls.Add(_nickname); header.Controls.Add(account);
+                  header.Resize += (_, _) => account.Left = header.ClientSize.Width - account.Width - 22;
+
+                  var body = new Panel { Dock = DockStyle.Fill, BackColor = Background };
+                  var sidebar = new Panel { Dock = DockStyle.Left, Width = 190, BackColor = Color.FromArgb(10, 11, 15) };
+                  string[] nav = { "⌂   Главная", "▤   Новости", "⟳   Обновления", "⚙   Настройки", "♙   Аккаунт", "?   Помощь" };
+                  for (int i = 0; i < nav.Length; i++)
                   {
-                      AutoSize = true, Text = "VEXORIUM", Font = new Font("Segoe UI", 26F, FontStyle.Bold),
-                      ForeColor = Red, Location = new Point(25, 9)
-                  });
-                  header.Controls.Add(new Label
+                      var item = new Label { Text = nav[i], Location = new Point(10, 30 + i * 62), Size = new Size(170, 48), BackColor = i == 0 ? Color.FromArgb(75, 15, 23) : Color.Transparent, ForeColor = i == 0 ? White : Muted, Font = new Font("Segoe UI", 10F, i == 0 ? FontStyle.Bold : FontStyle.Regular), TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(14, 0, 0, 0) };
+                      if (i == 0) item.Paint += (_, e) => { using var b = new SolidBrush(Red); e.Graphics.FillRectangle(b, 0, 0, 3, item.Height); };
+                      sidebar.Controls.Add(item);
+                  }
+                  sidebar.Controls.Add(new Label { Text = "♛\nVEXORIUM ROLEPLAY", Dock = DockStyle.Bottom, Height = 100, ForeColor = Color.FromArgb(190, 190, 198), Font = new Font("Segoe UI", 12F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter });
+
+                  var content = new Panel { Dock = DockStyle.Fill, BackColor = Background, AutoScroll = true, Padding = new Padding(22, 18, 22, 12) };
+                  body.Controls.Add(content); body.Controls.Add(sidebar); Controls.Add(body); Controls.Add(header);
+
+                  var hero = new Panel { Location = new Point(22, 18), Size = new Size(900, 310), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(35, 17, 22) };
+                  hero.Paint += (_, e) =>
                   {
-                      AutoSize = true, Text = "ROLEPLAY  /  PC LAUNCHER", Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                      ForeColor = White, Location = new Point(30, 60)
-                  });
-                  _versionLabel = new Label
-                  {
-                      AutoSize = true, Text = "КЛИЕНТ " + CurrentVersion,
-                      ForeColor = Muted, Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+                      var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+                      using var bg = new LinearGradientBrush(hero.ClientRectangle, Color.FromArgb(75, 17, 29), Color.FromArgb(10, 11, 16), 12F); g.FillRectangle(bg, hero.ClientRectangle);
+                      using var glow = new SolidBrush(Color.FromArgb(34, 245, 25, 45)); g.FillEllipse(glow, hero.Width - 370, -95, 450, 430);
+                      using var skyline = new Pen(Color.FromArgb(75, 230, 50, 62), 2);
+                      for (int i = 0; i < 13; i++) { int x = 390 + i * 39; int h = 35 + (i * 31 % 115); g.DrawRectangle(skyline, x, hero.Height - h - 3, 28, h); }
+                      using var title = new Font("Segoe UI", 34F, FontStyle.Bold); using var subtitle = new Font("Segoe UI", 18F, FontStyle.Bold); using var small = new Font("Segoe UI", 11F);
+                      g.DrawString("VEXORIUM", title, Brushes.White, 35, 35); g.DrawString("ROLEPLAY", subtitle, new SolidBrush(Red), 42, 91); g.DrawString("ТВОЯ ИСТОРИЯ НАЧИНАЕТСЯ ЗДЕСЬ", small, new SolidBrush(Color.FromArgb(215, 215, 222)), 43, 145);
+                      using var line = new Pen(Color.FromArgb(120, Red), 2); g.DrawLine(line, 35, 180, 300, 180);
                   };
-                  header.Controls.Add(_versionLabel);
-                  void PositionVersion() => _versionLabel.Location = new Point(
-                      Math.Max(20, header.ClientSize.Width - _versionLabel.Width - 25), 38);
-                  header.Resize += (_, _) => PositionVersion();
-                  PositionVersion();
+                  content.Controls.Add(hero);
 
-                  var content = new Panel { Dock = DockStyle.Fill, BackColor = Background, AutoScroll = true };
-                  Controls.Add(content);
-                  Controls.Add(header);
-                  header.BringToFront();
+                  _playButton = MakeButton("▶   ИГРАТЬ", Red, Color.FromArgb(255, 70, 85), White, 255);
+                  _playButton.Location = new Point(43, 215); _playButton.Size = new Size(255, 62); _playButton.Font = new Font("Segoe UI", 17F, FontStyle.Bold); _playButton.CornerRadius = 22;
+                  _playButton.Click += async (_, _) => await LaunchWithOpenMpAsync(); hero.Controls.Add(_playButton);
 
-                  content.Controls.Add(new Label
-                  {
-                      Location = new Point(27, 18), Size = new Size(900, 40),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = "ТВОЯ ИСТОРИЯ НАЧИНАЕТСЯ ЗДЕСЬ",
-                      Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = White
-                  });
-                  content.Controls.Add(new Label
-                  {
-                      Location = new Point(29, 61), Size = new Size(850, 25),
-                      Text = "Установка клиента и подключение к VEXORIUM ROLEPLAY",
-                      ForeColor = Muted
-                  });
-                  content.Controls.Add(new Label
-                  {
-                      Location = new Point(29, 102), Size = new Size(350, 24),
-                      Text = "МИР VEXORIUM", Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = White
-                  });
+                  var info = new Panel { Location = new Point(22, 345), Size = new Size(900, 92), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = PanelColor };
+                  info.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 4, BackColor = Red });
+                  info.Controls.Add(new Label { Text = "●", Location = new Point(20, 18), Size = new Size(25, 30), ForeColor = Color.FromArgb(70, 210, 120), Font = new Font("Segoe UI", 17F, FontStyle.Bold) });
+                  info.Controls.Add(new Label { Text = "СОСТОЯНИЕ ЛАУНЧЕРА", Location = new Point(52, 12), Size = new Size(250, 20), ForeColor = White, Font = new Font("Segoe UI", 9F, FontStyle.Bold) });
+                  _status = new Label { Location = new Point(52, 39), Size = new Size(820, 38), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Text = "Проверка обновлений…", ForeColor = Muted, AutoEllipsis = true };
+                  info.Controls.Add(_status); content.Controls.Add(info);
 
-                  var cards = new TableLayoutPanel
-                  {
-                      Location = new Point(27, 132), Size = new Size(content.ClientSize.Width - 54, 127),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      ColumnCount = 3, RowCount = 1, BackColor = Background,
-                      Margin = Padding.Empty, Padding = Padding.Empty
-                  };
-                  for (int i = 0; i < 3; i++) cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
-                  cards.Controls.Add(NewsCard("ПОЛИЦИЯ", "Новые возможности службы", Color.FromArgb(72, 103, 166)), 0, 0);
-                  cards.Controls.Add(NewsCard("FBI", "Обновление спецподразделения", Color.FromArgb(133, 75, 132)), 1, 0);
-                  cards.Controls.Add(NewsCard("АВТОУГОН", "Новая работа для жителей", Color.FromArgb(195, 93, 56)), 2, 0);
-                  content.Controls.Add(cards);
+                  var lower = new TableLayoutPanel { Location = new Point(22, 455), Size = new Size(900, 155), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, ColumnCount = 2, RowCount = 1, BackColor = Background };
+                  lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58F)); lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42F));
+                  var news = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Margin = new Padding(0, 0, 12, 0) };
+                  news.Controls.Add(new Label { Text = "📢  ПОСЛЕДНИЕ НОВОСТИ", Location = new Point(18, 13), Size = new Size(300, 26), ForeColor = White, Font = new Font("Segoe UI", 11F, FontStyle.Bold) });
+                  news.Controls.Add(new Label { Text = "Новости и события VEXORIUM ROLEPLAY", Location = new Point(20, 55), Size = new Size(420, 25), ForeColor = Muted, Font = new Font("Segoe UI", 10F) });
+                  news.Controls.Add(new Label { Text = "Следите за обновлениями проекта.", Location = new Point(20, 88), Size = new Size(420, 25), ForeColor = Muted, Font = new Font("Segoe UI", 9F) });
+                  lower.Controls.Add(news, 0, 0);
 
-                  var info = new Panel
-                  {
-                      Location = new Point(27, 278), Size = new Size(content.ClientSize.Width - 54, 95),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = PanelColor
-                  };
-                  info.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 5, BackColor = Red });
-                  info.Controls.Add(new Label
-                  {
-                      Location = new Point(20, 11), Size = new Size(420, 20), Text = "СОСТОЯНИЕ ЛАУНЧЕРА",
-                      Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = White
-                  });
-                  _status = new Label
-                  {
-                      Location = new Point(20, 37), Size = new Size(info.ClientSize.Width - 42, 44),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = "Проверка обновлений…", ForeColor = Muted, AutoEllipsis = true
-                  };
-                  info.Controls.Add(_status);
-                  content.Controls.Add(info);
+                  var quick = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor };
+                  quick.Controls.Add(new Label { Text = "★  БЫСТРЫЕ ДЕЙСТВИЯ", Location = new Point(17, 13), Size = new Size(250, 26), ForeColor = White, Font = new Font("Segoe UI", 11F, FontStyle.Bold) });
+                  _chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", Color.FromArgb(40, 41, 49), Color.FromArgb(62, 63, 72), White, 220);
+                  _chooseButton.Location = new Point(17, 53); _chooseButton.Size = new Size(220, 38);
+                  _chooseButton.Click += (_, _) => { string? selected = GameInstall.PickGameFolder(); if (!string.IsNullOrWhiteSpace(selected)) _gamePath = selected; RefreshButtons(); };
+                  quick.Controls.Add(_chooseButton);
+                  _copyButton = MakeButton("КОПИРОВАТЬ IP", Color.FromArgb(40, 41, 49), Color.FromArgb(62, 63, 72), White, 220);
+                  _copyButton.Location = new Point(17, 99); _copyButton.Size = new Size(220, 38);
+                  _copyButton.Click += (_, _) => { try { Clipboard.SetText(ServerHost + ":" + ServerPort); _status.Text = "Адрес сервера скопирован: " + ServerHost + ":" + ServerPort; } catch { MessageBox.Show("Не удалось скопировать адрес сервера.", "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Warning); } };
+                  quick.Controls.Add(_copyButton); lower.Controls.Add(quick, 1, 0); content.Controls.Add(lower);
 
-                  content.Controls.Add(new Label
-                  {
-                      Location = new Point(29, 392), Size = new Size(150, 22), Text = "НИКНЕЙМ",
-                      Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = White
-                  });
-                  _nickname = new TextBox
-                  {
-                      Location = new Point(27, 418), Size = new Size(245, 32),
-                      Text = GameInstall.ReadNickname(), MaxLength = 24,
-                      Font = new Font("Segoe UI", 10F), BackColor = PanelColor, ForeColor = White,
-                      BorderStyle = BorderStyle.FixedSingle
-                  };
-                  content.Controls.Add(_nickname);
-
-                  var buttons = new FlowLayoutPanel
-                  {
-                      Location = new Point(27, 470), Size = new Size(content.ClientSize.Width - 54, 102),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      FlowDirection = FlowDirection.LeftToRight, WrapContents = true,
-                      BackColor = Background, Padding = Padding.Empty, Margin = Padding.Empty
-                  };
-
-                  _playButton = MakeButton("УСТАНОВИТЬ КЛИЕНТ", Red, Color.FromArgb(255, 125, 137), White, 205);
-                  _playButton.Click += async (_, _) => await LaunchWithOpenMpAsync();
-
-                  _updateButton = MakeButton("ОБНОВИТЬ", Green, Color.FromArgb(55, 177, 116), White, 160);
-                  _updateButton.Visible = false;
+                  _updateButton = MakeButton("ОБНОВИТЬ", Green, Color.FromArgb(55, 177, 116), White, 160); _updateButton.Visible = false;
                   _updateButton.Click += async (_, _) => await UpdateLauncherAsync();
-
-                  _chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", PanelColor, Color.FromArgb(61, 63, 77), White, 205);
-                  _chooseButton.Click += (_, _) =>
-                  {
-                      string? selected = GameInstall.PickGameFolder();
-                      if (!string.IsNullOrWhiteSpace(selected)) _gamePath = selected;
-                      RefreshButtons();
-                      if (_checkSucceeded && !_updateAvailable)
-                          _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? "Папка GTA найдена. Можно установить клиент и подключиться."
-                              : "Выбери папку, где находится gta_sa.exe.";
-                  };
-
-                  _copyButton = MakeButton("КОПИРОВАТЬ IP", PanelColor, Color.FromArgb(61, 63, 77), White, 165);
-                  _copyButton.Click += (_, _) =>
-                  {
-                      try
-                      {
-                          Clipboard.SetText(ServerHost + ":" + ServerPort);
-                          _status.Text = "Адрес сервера скопирован: " + ServerHost + ":" + ServerPort;
-                      }
-                      catch
-                      {
-                          MessageBox.Show("Не удалось скопировать адрес сервера.", "VEXORIUM",
-                              MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                      }
-                  };
-
-                  _retryButton = MakeButton("ПОВТОРИТЬ ПРОВЕРКУ", PanelColor, Color.FromArgb(61, 63, 77), White, 205);
-                  _retryButton.Visible = false;
+                  _retryButton = MakeButton("ПОВТОРИТЬ ПРОВЕРКУ", PanelColor, Color.FromArgb(61, 63, 77), White, 205); _retryButton.Visible = false;
                   _retryButton.Click += async (_, _) => await CheckUpdatesAsync();
 
-                  buttons.Controls.Add(_playButton);
-                  buttons.Controls.Add(_updateButton);
-                  buttons.Controls.Add(_chooseButton);
-                  buttons.Controls.Add(_copyButton);
-                  buttons.Controls.Add(_retryButton);
-                  content.Controls.Add(buttons);
-
-                  _progress = new ProgressBar
-                  {
-                      Location = new Point(27, 582), Size = new Size(content.ClientSize.Width - 54, 18),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Minimum = 0, Maximum = 100, Value = 0, Visible = false,
-                      Style = ProgressBarStyle.Continuous
-                  };
-                  content.Controls.Add(_progress);
-
-                  content.Controls.Add(new Label
-                  {
-                      Location = new Point(29, 612), Size = new Size(content.ClientSize.Width - 58, 26),
-                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                      Text = "VEXORIUM ROLEPLAY  •  " + ServerHost + ":" + ServerPort,
-                      Font = new Font("Segoe UI", 9F), ForeColor = Muted
-                  });
+                  _progress = new ProgressBar { Dock = DockStyle.Left, Width = 280, Minimum = 0, Maximum = 100, Value = 0, Visible = false, Style = ProgressBarStyle.Continuous };
+                  var footer = new Panel { Dock = DockStyle.Bottom, Height = 48, BackColor = Color.FromArgb(8, 9, 12), Padding = new Padding(20, 14, 20, 8) };
+                  footer.Controls.Add(_progress);
+                  footer.Controls.Add(new Label { Text = "VEXORIUM ROLEPLAY  •  " + ServerHost + ":" + ServerPort, Location = new Point(320, 12), Size = new Size(500, 24), ForeColor = Muted, Font = new Font("Segoe UI", 8.5F) });
+                  _versionLabel = new Label { Text = "КЛИЕНТ " + CurrentVersion, Location = new Point(Width - 180, 12), Size = new Size(145, 24), Anchor = AnchorStyles.Top | AnchorStyles.Right, ForeColor = Muted, TextAlign = ContentAlignment.MiddleRight };
+                  footer.Controls.Add(_versionLabel); Controls.Add(footer); footer.BringToFront(); header.BringToFront();
 
                   Shown += async (_, _) => await CheckUpdatesAsync();
                   RefreshButtons();
+              }
+
+              private static GraphicsPath CreateRoundRect(Rectangle r, int radius)
+              {
+                  int d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
+                  var p = new GraphicsPath();
+                  p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+                  p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+                  p.CloseFigure(); return p;
               }
 
               private static Control NewsCard(string title, string description, Color accentColor)
