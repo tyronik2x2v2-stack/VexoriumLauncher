@@ -490,7 +490,7 @@ jobs:
                           _checkSucceeded = true;
                           _status.ForeColor = Color.FromArgb(106, 218, 157);
                           _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? $"Версия {CurrentVersion} актуальна. GTA найдена. Для игры нужен SA-MP 0.3.7 R1."
+                              ? $"Версия {CurrentVersion} актуальна. Клиент SA-MP установится автоматически при первом запуске."
                               : $"Версия {CurrentVersion} актуальна. Выбери папку GTA San Andreas.";
                       }
                   }
@@ -527,12 +527,6 @@ jobs:
                   }
 
                   string sampExe = Path.Combine(_gamePath!, "samp.exe");
-                  if (!File.Exists(sampExe))
-                  {
-                      MessageBox.Show("В выбранной папке не найден samp.exe. Установи именно SA-MP 0.3.7 R1 в папку GTA San Andreas, затем нажми «ПОВТОРИТЬ ПРОВЕРКУ».\n\nopen.mp и обычный gta_sa.exe здесь не используются.",
-                          "Нужен SA-MP 0.3.7 R1", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                      return;
-                  }
 
                   string nickname = _nickname.Text.Trim();
                   if (nickname.Length < 3 || nickname.Length > 24)
@@ -552,6 +546,13 @@ jobs:
 
                   try
                   {
+                      if (!File.Exists(sampExe))
+                      {
+                          await DownloadAndInstallSampAsync();
+                          if (!File.Exists(sampExe))
+                              throw new Exception("После установки файл samp.exe не появился. Проверь папку GTA San Andreas и попробуй ещё раз.");
+                      }
+
                       using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\SAMP"))
                       {
                           key?.SetValue("PlayerName", nickname, Microsoft.Win32.RegistryValueKind.String);
@@ -589,6 +590,74 @@ jobs:
                   {
                       _busy = false;
                       RefreshButtons();
+                  }
+              }
+
+              private async Task DownloadAndInstallSampAsync()
+              {
+                  const string installerUrl = "https://files.sa-mp.cc/sa-mp-0.3.7-install.exe";
+                  string tempInstaller = Path.Combine(Path.GetTempPath(), "Vexorium-SAMP-0.3.7-R1-" + Guid.NewGuid().ToString("N") + ".exe");
+
+                  _status.ForeColor = Color.FromArgb(235, 190, 93);
+                  _status.Text = "SA-MP 0.3.7 R1 не найден. Скачиваем официальный установщик…";
+                  _progress.Visible = true;
+                  _progress.Style = ProgressBarStyle.Marquee;
+
+                  try
+                  {
+                      using var client = CreateHttpClient(TimeSpan.FromMinutes(5));
+                      using var response = await client.GetAsync(installerUrl, HttpCompletionOption.ResponseHeadersRead);
+                      response.EnsureSuccessStatusCode();
+
+                      await using (var input = await response.Content.ReadAsStreamAsync())
+                      await using (var output = new FileStream(tempInstaller, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                      {
+                          await input.CopyToAsync(output);
+                      }
+
+                      var downloaded = new FileInfo(tempInstaller);
+                      if (!downloaded.Exists || downloaded.Length < 5_000_000)
+                          throw new Exception("Установщик SA-MP скачался не полностью или имеет неверный размер.");
+
+                      byte[] signature = new byte[2];
+                      await using (var check = File.OpenRead(tempInstaller))
+                      {
+                          if (await check.ReadAsync(signature.AsMemory(0, 2)) != 2 ||
+                              signature[0] != (byte)'M' || signature[1] != (byte)'Z')
+                              throw new Exception("Скачанный установщик не распознан как Windows EXE.");
+                      }
+
+                      _status.Text = "Устанавливаем SA-MP 0.3.7 R1 в папку GTA San Andreas…";
+                      var setup = new ProcessStartInfo
+                      {
+                          FileName = tempInstaller,
+                          WorkingDirectory = Path.GetTempPath(),
+                          UseShellExecute = true,
+                          Verb = "runas"
+                      };
+                      setup.ArgumentList.Add("/S");
+                      setup.ArgumentList.Add("/D=" + _gamePath);
+
+                      using Process? installer = Process.Start(setup);
+                      if (installer == null)
+                          throw new Exception("Windows не смог запустить установщик SA-MP.");
+
+                      await installer.WaitForExitAsync();
+                      if (installer.ExitCode != 0)
+                          throw new Exception("Установщик SA-MP завершился с кодом " + installer.ExitCode + ".");
+
+                      await Task.Delay(700);
+                      if (!File.Exists(Path.Combine(_gamePath!, "samp.exe")))
+                          throw new Exception("Установщик завершился, но samp.exe не найден в выбранной папке GTA.");
+
+                      WriteLaunchLog("SA-MP 0.3.7 R1 downloaded and installed into " + _gamePath);
+                      _status.Text = "SA-MP 0.3.7 R1 установлен. Запускаем игру…";
+                  }
+                  finally
+                  {
+                      _progress.Visible = false;
+                      _progress.Style = ProgressBarStyle.Continuous;
+                      try { if (File.Exists(tempInstaller)) File.Delete(tempInstaller); } catch { }
                   }
               }
 
