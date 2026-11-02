@@ -230,15 +230,15 @@ jobs:
 
           internal sealed class LauncherForm : Form
           {
-              private const string ServerHost = "signaling-resumed.tun.ply.gg";
-              private const string ServerPort = "24231";
+              private const string ServerHost = "188.127.241.74";
+              private const string ServerPort = "1321";
               private const string VersionUrl = "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/version.json";
               private const string LauncherDownloadUrl = "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
               private const string CurrentVersion = "__LAUNCHER_VERSION__";
               private const string OpenMpReleaseApi = "https://api.github.com/repos/openmultiplayer/launcher/releases/latest";
 
-              private static readonly string OpenMpDirectory = Path.Combine(
-                  Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium", "open.mp");
+              private static readonly string VexoriumDirectory = @"C:\VEXORIUM";
+              private static readonly string OpenMpDirectory = Path.Combine(VexoriumDirectory, "open.mp");
               private static readonly string OpenMpExe = Path.Combine(OpenMpDirectory, "omp-launcher.exe");
               private static readonly string OpenMpTagFile = Path.Combine(OpenMpDirectory, "release-tag.txt");
 
@@ -255,7 +255,6 @@ jobs:
               private readonly RoundedButton _playButton;
               private readonly RoundedButton _updateButton;
               private readonly RoundedButton _chooseButton;
-              private readonly RoundedButton _copyButton;
               private readonly RoundedButton _retryButton;
 
               private static readonly Color Background = Color.FromArgb(15, 16, 21);
@@ -383,10 +382,7 @@ jobs:
                   _chooseButton.Location = new Point(17, 53); _chooseButton.Size = new Size(220, 38);
                   _chooseButton.Click += (_, _) => { string? selected = GameInstall.PickGameFolder(); if (!string.IsNullOrWhiteSpace(selected)) _gamePath = selected; RefreshButtons(); };
                   quick.Controls.Add(_chooseButton);
-                  _copyButton = MakeButton("КОПИРОВАТЬ IP", Color.FromArgb(40, 41, 49), Color.FromArgb(62, 63, 72), White, 220);
-                  _copyButton.Location = new Point(17, 99); _copyButton.Size = new Size(220, 38);
-                  _copyButton.Click += (_, _) => { try { Clipboard.SetText(ServerHost + ":" + ServerPort); _status.Text = "Адрес сервера скопирован: " + ServerHost + ":" + ServerPort; } catch { MessageBox.Show("Не удалось скопировать адрес сервера.", "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Warning); } };
-                  quick.Controls.Add(_copyButton); lower.Controls.Add(quick, 1, 0); content.Controls.Add(lower);
+                  lower.Controls.Add(quick, 1, 0); content.Controls.Add(lower);
 
                   _updateButton = MakeButton("ОБНОВИТЬ", Green, Color.FromArgb(55, 177, 116), White, 160); _updateButton.Visible = false;
                   _updateButton.Click += async (_, _) => await UpdateLauncherAsync();
@@ -450,7 +446,6 @@ jobs:
                   _playButton.Text = File.Exists(OpenMpExe) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ КЛИЕНТ";
                   _updateButton.Enabled = !_busy;
                   _chooseButton.Enabled = !_busy;
-                  _copyButton.Enabled = !_busy;
                   _retryButton.Enabled = !_busy && !_checking;
               }
 
