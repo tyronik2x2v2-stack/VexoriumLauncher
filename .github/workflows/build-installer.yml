@@ -58,6 +58,7 @@ jobs:
           using System.Drawing.Drawing2D;
           using System.IO;
           using System.IO.Compression;
+          using System.Linq;
           using System.Net.Http;
           using System.Text;
           using System.Text.Json;
@@ -238,6 +239,8 @@ jobs:
               private const string LauncherDownloadUrl = "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
               private const string CurrentVersion = "__LAUNCHER_VERSION__";
               private const string OpenMpReleaseApi = "https://api.github.com/repos/openmultiplayer/launcher/releases/latest";
+              private const string ModLoaderArchiveUrl = "https://github.com/thelink2012/modloader/releases/download/v0.3.10/modloader.zip";
+              private const string AsiLoaderArchiveUrl = "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/Win32-latest/dinput8-Win32.zip";
 
               private static readonly string VexoriumDirectory = @"C:\VEXORIUM";
               private static readonly string OpenMpDirectory = Path.Combine(VexoriumDirectory, "open.mp");
@@ -538,7 +541,8 @@ jobs:
                       if (!File.Exists(gtaExe))
                           throw new Exception("В выбранной папке не найден gta_sa.exe: " + _gamePath);
 
-                      // A clean GTA folder is valid: install the official open.mp launcher automatically.
+                      // Prepare the GTA client for VEXORIUM custom models before launching multiplayer.
+                      await EnsureModLoaderAsync();
                       await EnsureOpenMpLauncherAsync();
                       if (!File.Exists(OpenMpExe))
                           throw new Exception("После загрузки не найден клиент open.mp: " + OpenMpExe);
@@ -640,6 +644,128 @@ jobs:
                           DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
                   }
                   catch { }
+              }
+
+              private async Task EnsureModLoaderAsync()
+              {
+                  if (!GameInstall.IsGameFolder(_gamePath))
+                      throw new Exception("Сначала выбери папку GTA San Andreas.");
+
+                  string gameRoot = _gamePath!;
+                  string asiPath = Path.Combine(gameRoot, "modloader.asi");
+                  string modFolder = Path.Combine(gameRoot, "modloader");
+                  string asiLoaderPath = Path.Combine(gameRoot, "dinput8.dll");
+                  Directory.CreateDirectory(modFolder);
+
+                  // Never overwrite an existing ASI loader proxy. It may belong to another installed mod.
+                  if (!File.Exists(asiLoaderPath))
+                  {
+                      _status.Text = "Устанавливаем компонент загрузки модификаций…";
+                      string tempZip = Path.Combine(Path.GetTempPath(), "Vexorium-asi-" + Guid.NewGuid().ToString("N") + ".zip");
+                      string tempDirectory = Path.Combine(Path.GetTempPath(), "Vexorium-asi-" + Guid.NewGuid().ToString("N"));
+                      try
+                      {
+                          await DownloadArchiveAsync(AsiLoaderArchiveUrl, tempZip, "ASI Loader");
+                          Directory.CreateDirectory(tempDirectory);
+                          ZipFile.ExtractToDirectory(tempZip, tempDirectory, true);
+
+                          string? dll = Directory.GetFiles(tempDirectory, "dinput8.dll", SearchOption.AllDirectories).FirstOrDefault();
+                          if (dll == null)
+                              throw new Exception("В архиве ASI Loader не найден 32-битный dinput8.dll.");
+
+                          byte[] signature = new byte[2];
+                          using (var stream = File.OpenRead(dll))
+                          {
+                              if (stream.Read(signature, 0, 2) != 2 || signature[0] != (byte)'M' || signature[1] != (byte)'Z')
+                                  throw new Exception("Файл ASI Loader не прошёл проверку Windows DLL.");
+                          }
+                          if (new FileInfo(dll).Length < 50000)
+                              throw new Exception("Файл ASI Loader неожиданно мал; установка отменена.");
+
+                          File.Copy(dll, asiLoaderPath, false);
+                          WriteLaunchLog("Installed official 32-bit Ultimate ASI Loader.");
+                      }
+                      finally
+                      {
+                          try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+                          try { if (Directory.Exists(tempDirectory)) Directory.Delete(tempDirectory, true); } catch { }
+                      }
+                  }
+                  else
+                  {
+                      WriteLaunchLog("Existing dinput8.dll detected; kept existing ASI loader proxy unchanged.");
+                  }
+
+                  if (!File.Exists(asiPath) || !Directory.Exists(modFolder))
+                  {
+                      _status.Text = "Загружаем Mod Loader…";
+                      string tempZip = Path.Combine(Path.GetTempPath(), "Vexorium-modloader-" + Guid.NewGuid().ToString("N") + ".zip");
+                      string tempDirectory = Path.Combine(Path.GetTempPath(), "Vexorium-modloader-" + Guid.NewGuid().ToString("N"));
+                      try
+                      {
+                          await DownloadArchiveAsync(ModLoaderArchiveUrl, tempZip, "Mod Loader");
+                          Directory.CreateDirectory(tempDirectory);
+                          ZipFile.ExtractToDirectory(tempZip, tempDirectory, true);
+
+                          string? modloaderAsi = Directory.GetFiles(tempDirectory, "modloader.asi", SearchOption.AllDirectories).FirstOrDefault();
+                          string? packagedModFolder = Directory.GetDirectories(tempDirectory, "modloader", SearchOption.AllDirectories).FirstOrDefault();
+                          if (modloaderAsi == null || packagedModFolder == null)
+                              throw new Exception("Архив Mod Loader не содержит modloader.asi и папку modloader.");
+
+                          if (!File.Exists(asiPath))
+                              File.Copy(modloaderAsi, asiPath, false);
+
+                          CopyDirectoryWithoutOverwrite(packagedModFolder, modFolder);
+                          WriteLaunchLog("Installed Mod Loader v0.3.10.");
+                      }
+                      finally
+                      {
+                          try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+                          try { if (Directory.Exists(tempDirectory)) Directory.Delete(tempDirectory, true); } catch { }
+                      }
+                  }
+
+                  Directory.CreateDirectory(Path.Combine(modFolder, "VEXORIUM"));
+                  _status.Text = "Mod Loader установлен. Подготавливаем подключение…";
+              }
+
+              private async Task DownloadArchiveAsync(string url, string destination, string description)
+              {
+                  using var client = CreateHttpClient(TimeSpan.FromMinutes(5));
+                  using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                  response.EnsureSuccessStatusCode();
+                  await using (var input = await response.Content.ReadAsStreamAsync())
+                  await using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                      await input.CopyToAsync(output);
+
+                  var info = new FileInfo(destination);
+                  if (!info.Exists || info.Length < 10000)
+                      throw new Exception("Не удалось скачать архив " + description + " или файл слишком мал.");
+
+                  using var archive = ZipFile.OpenRead(destination);
+                  if (archive.Entries.Count == 0)
+                      throw new Exception("Архив " + description + " пуст.");
+              }
+
+              private static void CopyDirectoryWithoutOverwrite(string source, string destination)
+              {
+                  Directory.CreateDirectory(destination);
+                  foreach (string directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+                  {
+                      string relative = Path.GetRelativePath(source, directory);
+                      Directory.CreateDirectory(Path.Combine(destination, relative));
+                  }
+
+                  foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+                  {
+                      string relative = Path.GetRelativePath(source, file);
+                      string target = Path.Combine(destination, relative);
+                      string? parent = Path.GetDirectoryName(target);
+                      if (!string.IsNullOrWhiteSpace(parent))
+                          Directory.CreateDirectory(parent);
+                      if (!File.Exists(target))
+                          File.Copy(file, target, false);
+                  }
               }
 
               private async Task EnsureOpenMpLauncherAsync()
