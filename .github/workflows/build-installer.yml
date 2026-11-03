@@ -554,7 +554,21 @@ jobs:
                       if (!File.Exists(OpenMpExe))
                           throw new Exception("После загрузки не найден клиент open.mp: " + OpenMpExe);
 
-                      _status.Text = "Запускаем официальный клиент open.mp…";
+                      string gameRoot = Path.GetFullPath(_gamePath!);
+                      string sampDllPath = Path.Combine(gameRoot, "samp.dll");
+                      if (!IsValidSampClientDll(sampDllPath))
+                          throw new Exception("Не найден корректный samp.dll рядом с gta_sa.exe. Автоустановка SA-MP не завершилась; мультиплеер не будет запускаться как обычная GTA.");
+
+                      string ompClientPath = Path.Combine(
+                          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                          "mp.open.launcher", "omp", "omp-client.dll");
+                      if (!File.Exists(ompClientPath) || new FileInfo(ompClientPath).Length < 100000)
+                          throw new Exception("Клиент omp-client.dll отсутствует или повреждён. Повтори запуск, чтобы лаунчер скачал его заново.");
+
+                      // Record existing GTA processes so that a failed multiplayer injection never leaves a single-player GTA window open.
+                      var existingGtaPids = Process.GetProcessesByName("gta_sa").Select(p => p.Id).ToHashSet();
+
+                      _status.Text = "Запускаем официальный клиент open.mp и проверяем внедрение…";
                       var startInfo = new ProcessStartInfo
                       {
                           FileName = OpenMpExe,
@@ -563,8 +577,7 @@ jobs:
                           CreateNoWindow = false,
                           WindowStyle = ProcessWindowStyle.Normal
                       };
-                      // Use the exact long options documented by the official open.mp launcher.
-                      // --gamepath must point to the folder containing gta_sa.exe and samp.dll.
+                      // Official open.mp CLI injects samp.dll and omp-client.dll into gta_sa.exe.
                       startInfo.ArgumentList.Add("--host");
                       startInfo.ArgumentList.Add(ServerHost);
                       startInfo.ArgumentList.Add("--port");
@@ -572,12 +585,36 @@ jobs:
                       startInfo.ArgumentList.Add("--name");
                       startInfo.ArgumentList.Add(nickname);
                       startInfo.ArgumentList.Add("--gamepath");
-                      startInfo.ArgumentList.Add(_gamePath!);
-                      var ompProcess = Process.Start(startInfo);
-                      if (ompProcess == null) throw new Exception("Windows не смог запустить клиент open.mp.");
-                      WriteLaunchLog("open.mp launcher started pid=" + ompProcess.Id + " args=--host " + ServerHost + " --port " + ServerPort + " --name " + nickname + " --gamepath " + _gamePath);
+                      startInfo.ArgumentList.Add(gameRoot);
+
+                      using var ompProcess = Process.Start(startInfo);
+                      if (ompProcess == null)
+                          throw new Exception("Windows не смог запустить клиент open.mp.");
+
+                      await ompProcess.WaitForExitAsync();
+                      if (ompProcess.ExitCode != 0)
+                      {
+                          StopNewGameProcesses(existingGtaPids);
+                          string launcherLog = ReadOpenMpLauncherLogTail();
+                          throw new Exception(
+                              "Клиент open.mp не смог подключить GTA к мультиплееру (код " +
+                              ompProcess.ExitCode + "). Обычная GTA была закрыта, чтобы не запускать одиночную игру.\n\n" +
+                              "Лог open.mp:\n" + launcherLog);
+                      }
+
+                      var gameProcess = await WaitForNewGameProcessAsync(existingGtaPids, TimeSpan.FromSeconds(15));
+                      if (gameProcess == null)
+                      {
+                          string launcherLog = ReadOpenMpLauncherLogTail();
+                          throw new Exception(
+                              "open.mp завершил запуск без работающего процесса gta_sa.exe. Проверь samp.dll и omp-client.dll.\n\n" +
+                              "Лог open.mp:\n" + launcherLog);
+                      }
+
+                      WriteLaunchLog("open.mp injection completed successfully; gta_sa pid=" + gameProcess.Id +
+                          ", host=" + ServerHost + ", port=" + ServerPort + ", nickname=" + nickname);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Клиент open.mp запущен. Подключение к Vexorium RolePlay…";
+                      _status.Text = "Клиент open.mp запущен. Проверка мультиплеерного подключения завершена.";
                   }
                   catch (Exception ex)
                   {
@@ -668,6 +705,59 @@ jobs:
                   catch
                   {
                       return false;
+                  }
+              }
+
+              private static async Task<Process?> WaitForNewGameProcessAsync(HashSet<int> previousPids, TimeSpan timeout)
+              {
+                  var timer = Stopwatch.StartNew();
+                  while (timer.Elapsed < timeout)
+                  {
+                      foreach (Process process in Process.GetProcessesByName("gta_sa"))
+                      {
+                          try
+                          {
+                              if (!previousPids.Contains(process.Id))
+                                  return process;
+                          }
+                          catch { }
+                      }
+                      await Task.Delay(250);
+                  }
+                  return null;
+              }
+
+              private static void StopNewGameProcesses(HashSet<int> previousPids)
+              {
+                  foreach (Process process in Process.GetProcessesByName("gta_sa"))
+                  {
+                      try
+                      {
+                          if (!previousPids.Contains(process.Id))
+                          {
+                              process.Kill(entireProcessTree: true);
+                              process.WaitForExit(3000);
+                          }
+                      }
+                      catch { }
+                      finally { process.Dispose(); }
+                  }
+              }
+
+              private static string ReadOpenMpLauncherLogTail()
+              {
+                  string path = Path.Combine(OpenMpDirectory, "omp-launcher.log");
+                  try
+                  {
+                      if (!File.Exists(path))
+                          return "Файл лога не создан: " + path;
+                      string[] lines = File.ReadAllLines(path);
+                      return string.Join(Environment.NewLine, lines.TakeLast(25)) +
+                          Environment.NewLine + "Полный лог: " + path;
+                  }
+                  catch (Exception ex)
+                  {
+                      return "Не удалось прочитать " + path + ": " + ex.Message;
                   }
               }
 
