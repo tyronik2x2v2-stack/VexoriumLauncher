@@ -45,6 +45,7 @@ jobs:
               <Nullable>enable</Nullable>
               <ImplicitUsings>enable</ImplicitUsings>
               <AssemblyName>VexoriumLauncher</AssemblyName>
+            <ApplicationIcon>vexorium.ico</ApplicationIcon>
               <RootNamespace>VexoriumLauncher</RootNamespace>
             </PropertyGroup>
           </Project>
@@ -56,6 +57,7 @@ jobs:
           using System.Drawing;
           using System.Drawing.Drawing2D;
           using System.IO;
+          using System.IO.Compression;
           using System.Net.Http;
           using System.Text;
           using System.Text.Json;
@@ -359,7 +361,7 @@ jobs:
 
                   _playButton = MakeButton("▶   ИГРАТЬ", Red, Color.FromArgb(255, 70, 85), White, 255);
                   _playButton.Location = new Point(43, 215); _playButton.Size = new Size(255, 62); _playButton.Font = new Font("Segoe UI", 17F, FontStyle.Bold); _playButton.CornerRadius = 22;
-                  _playButton.Click += async (_, _) => await LaunchWithOpenMpAsync(); hero.Controls.Add(_playButton);
+                  _playButton.Click += async (_, _) => await InstallOrPlayAsync(); hero.Controls.Add(_playButton);
 
                   var info = new Panel { Location = new Point(22, 345), Size = new Size(900, 92), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = PanelColor };
                   info.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 4, BackColor = Red });
@@ -442,8 +444,8 @@ jobs:
 
               private void RefreshButtons()
               {
-                  _playButton.Enabled = _checkSucceeded && !_checking && !_updateAvailable && !_busy && GameInstall.IsGameFolder(_gamePath);
-                  _playButton.Text = GameInstall.IsGameFolder(_gamePath) && File.Exists(Path.Combine(_gamePath!, "samp.exe")) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ SA-MP 0.3.7 R5-2 MP";
+                  _playButton.Enabled = _checkSucceeded && !_checking && !_updateAvailable && !_busy;
+                  _playButton.Text = GameInstall.IsGameFolder(_gamePath) ? "▶  ИГРАТЬ" : "⬇  УСТАНОВИТЬ";
                   _updateButton.Enabled = !_busy;
                   _chooseButton.Enabled = !_busy;
                   _retryButton.Enabled = !_busy && !_checking;
@@ -510,158 +512,99 @@ jobs:
                   }
               }
 
-              private async Task LaunchWithOpenMpAsync()
+              private const string GtaDriveUrl = "https://drive.usercontent.google.com/download?id=1tPOSqb_tT3Cm3x2WEa2Efk3UsbVbA23E&export=download&confirm=t";
+
+              private async Task InstallOrPlayAsync()
               {
-                  if (!_checkSucceeded || _checking || _updateAvailable || _busy)
-                  {
-                      MessageBox.Show("Сначала дождись успешной проверки обновлений.", "VEXORIUM",
-                          MessageBoxButtons.OK, MessageBoxIcon.Information);
-                      RefreshButtons();
-                      return;
-                  }
+                  if (!_checkSucceeded || _checking || _updateAvailable || _busy) return;
                   if (!GameInstall.IsGameFolder(_gamePath))
                   {
-                      MessageBox.Show("Сначала выбери папку, где находится gta_sa.exe.", "GTA San Andreas",
-                          MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      await DownloadAndInstallGtaAsync();
                       return;
                   }
-
-                  string sampExe = Path.Combine(_gamePath!, "samp.exe");
-
                   string nickname = _nickname.Text.Trim();
                   if (nickname.Length < 3 || nickname.Length > 24)
                   {
-                      MessageBox.Show("Введи никнейм длиной от 3 до 24 символов.", "Никнейм",
-                          MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                      MessageBox.Show("Введи никнейм длиной от 3 до 24 символов.", "Никнейм", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                       _nickname.Focus();
                       return;
                   }
-                  GameInstall.SaveNickname(nickname);
-
                   _busy = true;
-                  _progress.Visible = false;
-                  _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "Запускаем SA-MP 0.3.7 R5-2 MP…";
                   RefreshButtons();
-
                   try
                   {
-                      if (!File.Exists(sampExe))
-                      {
-                          await DownloadAndInstallSampAsync();
-                          if (!File.Exists(sampExe))
-                              throw new Exception("После установки файл samp.exe не появился. Проверь папку GTA San Andreas и попробуй ещё раз.");
-                      }
-
-                      using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\SAMP"))
-                      {
-                          key?.SetValue("PlayerName", nickname, Microsoft.Win32.RegistryValueKind.String);
-                      }
-
-                      var startInfo = new ProcessStartInfo
-                      {
-                          FileName = sampExe,
-                          WorkingDirectory = _gamePath!,
-                          UseShellExecute = false
-                      };
-                      startInfo.ArgumentList.Add(ServerHost + ":" + ServerPort);
-
-                      Process? sampProcess = Process.Start(startInfo);
-                      if (sampProcess == null)
-                          throw new Exception("Windows не смог запустить samp.exe.");
-
-                      await Task.Delay(2500);
-                      Process[] gameProcesses = Process.GetProcessesByName("gta_sa");
-                      if (gameProcesses.Length == 0)
-                          throw new Exception("SA-MP не запустил GTA. Проверь, что установлен клиент SA-MP 0.3.7 R5-2 MP именно в выбранную папку GTA San Andreas.");
-
-                      WriteLaunchLog($"Запуск SA-MP 0.3.7 R5-2 MP: host={ServerHost}, port={ServerPort}, nickname={nickname}, client={sampExe}, gtaProcesses={gameProcesses.Length}");
-                      _status.ForeColor = Color.FromArgb(235, 190, 93);
-                      _status.Text = "SA-MP 0.3.7 R5-2 MP запущен. Проверяй подключение к VEXORIUM.";
+                      GameInstall.SaveNickname(nickname);
+                      await EnsureOpenMpLauncherAsync();
+                      _status.Text = "Запускаем официальный клиент open.mp…";
+                      var startInfo = new ProcessStartInfo { FileName = OpenMpExe, WorkingDirectory = OpenMpDirectory, UseShellExecute = true };
+                      startInfo.ArgumentList.Add("-h"); startInfo.ArgumentList.Add(ServerHost);
+                      startInfo.ArgumentList.Add("-p"); startInfo.ArgumentList.Add(ServerPort);
+                      startInfo.ArgumentList.Add("-n"); startInfo.ArgumentList.Add(nickname);
+                      startInfo.ArgumentList.Add("-g"); startInfo.ArgumentList.Add(_gamePath!);
+                      if (Process.Start(startInfo) == null) throw new Exception("Windows не смог запустить open.mp Launcher.");
+                      WriteLaunchLog("open.mp launched for " + ServerHost + ":" + ServerPort + " nickname=" + nickname);
+                      _status.ForeColor = Color.FromArgb(106, 218, 157);
+                      _status.Text = "open.mp запущен. Подключайся к VEXORIUM ROLEPLAY.";
                   }
                   catch (Exception ex)
                   {
                       _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text = "Не удалось запустить SA-MP 0.3.7 R5-2 MP.";
-                      MessageBox.Show("Ошибка запуска SA-MP 0.3.7 R5-2 MP:\n" + ex.Message,
-                          "Ошибка клиента", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      _status.Text = "Не удалось запустить open.mp.";
+                      MessageBox.Show("Ошибка open.mp:\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
-                  finally
-                  {
-                      _busy = false;
-                      RefreshButtons();
-                  }
+                  finally { _busy = false; RefreshButtons(); }
               }
 
-              private async Task DownloadAndInstallSampAsync()
+              private async Task DownloadAndInstallGtaAsync()
               {
-                  // The official SA-MP page links this exact R1 installer mirror.
-                  const string installerUrl = "https://gta-multiplayer.cz/downloads/sa-mp-0.3.7-R5-2-MP-install.exe";
-                  string tempInstaller = Path.Combine(Path.GetTempPath(), "Vexorium-SAMP-0.3.7-R1-" + Guid.NewGuid().ToString("N") + ".exe");
-
-                  _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "SA-MP 0.3.7 R5-2 MP не найден. Скачиваем установщик…";
-                  _progress.Visible = true;
-                  _progress.Style = ProgressBarStyle.Marquee;
-
+                  _busy = true; RefreshButtons();
+                  _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee;
+                  string tempFile = Path.Combine(Path.GetTempPath(), "Vexorium-GTA-" + Guid.NewGuid().ToString("N") + ".bin");
+                  string installDirectory = Path.Combine(VexoriumDirectory, "GTA San Andreas");
                   try
                   {
-                      using var client = CreateHttpClient(TimeSpan.FromMinutes(5));
-                      using var response = await client.GetAsync(installerUrl, HttpCompletionOption.ResponseHeadersRead);
-                      if (!response.IsSuccessStatusCode)
-                          throw new Exception("Сервер загрузки SA-MP ответил: " + (int)response.StatusCode + " " + response.ReasonPhrase);
-
+                      Directory.CreateDirectory(VexoriumDirectory);
+                      _status.Text = "Скачиваем файлы GTA San Andreas с Google Drive…";
+                      using var client = CreateHttpClient(TimeSpan.FromMinutes(30));
+                      using var response = await client.GetAsync(GtaDriveUrl, HttpCompletionOption.ResponseHeadersRead);
+                      if (!response.IsSuccessStatusCode) throw new Exception("Google Drive вернул HTTP " + (int)response.StatusCode + ".");
                       await using (var input = await response.Content.ReadAsStreamAsync())
-                      await using (var output = new FileStream(tempInstaller, FileMode.Create, FileAccess.Write, FileShare.None))
-                      {
+                      await using (var output = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
                           await input.CopyToAsync(output);
-                          await output.FlushAsync();
-                      }
-
-                      var downloaded = new FileInfo(tempInstaller);
-                      if (!downloaded.Exists || downloaded.Length < 5_000_000)
-                          throw new Exception("Сервер вернул неполный файл. Загрузка отменена.");
-
-                      byte[] signature = new byte[2];
-                      await using (var check = File.OpenRead(tempInstaller))
+                      var info = new FileInfo(tempFile);
+                      if (!info.Exists || info.Length < 5_000_000)
+                          throw new Exception("Файл слишком маленький. Возможно, Google Drive вернул страницу подтверждения или доступ закрыт.");
+                      byte[] sig = new byte[2];
+                      await using (var fs = File.OpenRead(tempFile)) await fs.ReadAsync(sig.AsMemory(0, 2));
+                      if (sig[0] == 0x50 && sig[1] == 0x4B)
                       {
-                          if (await check.ReadAsync(signature.AsMemory(0, 2)) != 2 ||
-                              signature[0] != (byte)'M' || signature[1] != (byte)'Z')
-                              throw new Exception("Вместо установщика получен неверный файл. Попробуй позже.");
+                          _status.Text = "Распаковываем ZIP-архив GTA San Andreas…";
+                          Directory.CreateDirectory(installDirectory);
+                          ZipFile.ExtractToDirectory(tempFile, installDirectory, true);
+                          string? gtaExe = Directory.GetFiles(installDirectory, "gta_sa.exe", SearchOption.AllDirectories).FirstOrDefault();
+                          if (gtaExe == null) throw new Exception("В ZIP-архиве не найден gta_sa.exe.");
+                          _gamePath = Path.GetDirectoryName(gtaExe);
                       }
-
-                      _status.Text = "Открываем установщик SA-MP 0.3.7 R5-2 MP. В нём выбери папку с gta_sa.exe…";
-                      // Run the vendor installer normally. Do not pass undocumented silent switches:
-                      // they can make setup exit without installing samp.exe.
-                      var setup = new ProcessStartInfo
+                      else
                       {
-                          FileName = tempInstaller,
-                          WorkingDirectory = Path.GetTempPath(),
-                          UseShellExecute = true
-                      };
-
-                      using Process? installer = Process.Start(setup);
-                      if (installer == null)
-                          throw new Exception("Windows не смог открыть установщик SA-MP.");
-
-                      await installer.WaitForExitAsync();
-
-                      string installedClient = Path.Combine(_gamePath!, "samp.exe");
-                      if (!File.Exists(installedClient))
-                          throw new Exception("Установщик закрылся, но samp.exe не найден. В окне установки укажи именно папку, где лежит gta_sa.exe, и заверши установку.");
-
-                      WriteLaunchLog("SA-MP 0.3.7 R5-2 MP installer completed into " + _gamePath);
-                      _status.Text = "SA-MP 0.3.7 R5-2 MP установлен. Запускаем игру…";
+                          throw new Exception("Ссылка скачала не ZIP-архив. Напиши, какой формат у файла на Google Drive (ZIP, RAR, 7Z или EXE), чтобы добавить правильную распаковку.");
+                      }
+                      if (!GameInstall.IsGameFolder(_gamePath)) throw new Exception("Не удалось найти установленную GTA San Andreas.");
+                      _status.ForeColor = Color.FromArgb(106, 218, 157);
+                      _status.Text = "GTA San Andreas установлена. Теперь нажми «ИГРАТЬ» для подготовки open.mp.";
+                      MessageBox.Show("GTA San Andreas подготовлена. Нажми «ИГРАТЬ», чтобы загрузить open.mp.", "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Information);
                   }
-                  catch (HttpRequestException ex)
+                  catch (Exception ex)
                   {
-                      throw new Exception("Не удалось скачать SA-MP. Проверь интернет или блокировку загрузки антивирусом. " + ex.Message, ex);
+                      _status.ForeColor = Color.FromArgb(255, 145, 145);
+                      _status.Text = "Не удалось установить GTA San Andreas.";
+                      MessageBox.Show("Ошибка установки GTA San Andreas:\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
                   finally
                   {
-                      _progress.Visible = false;
-                      _progress.Style = ProgressBarStyle.Continuous;
-                      try { if (File.Exists(tempInstaller)) File.Delete(tempInstaller); } catch { }
+                      _progress.Visible = false; _progress.Style = ProgressBarStyle.Continuous; _busy = false;
+                      try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+                      RefreshButtons();
                   }
               }
 
@@ -747,7 +690,7 @@ jobs:
 
                   File.Move(tempFile, OpenMpExe, true);
                   File.WriteAllText(OpenMpTagFile, tag);
-                  _status.Text = "Клиент SA-MP подготовлен: " + tag;
+                  _status.Text = "Клиент open.mp загружен: " + tag;
                   _playButton.Text = "▶  ИГРАТЬ";
               }
 
