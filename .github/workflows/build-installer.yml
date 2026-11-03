@@ -239,6 +239,7 @@ jobs:
               private const string LauncherDownloadUrl = "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
               private const string CurrentVersion = "__LAUNCHER_VERSION__";
               private const string OpenMpReleaseApi = "https://api.github.com/repos/openmultiplayer/launcher/releases/latest";
+              private const string OpenMpUpdateInfoUrl = "https://api.open.mp/launcher";
               private const string ModLoaderArchiveUrl = "https://github.com/thelink2012/modloader/releases/download/v0.3.10/modloader.zip";
               private const string AsiLoaderArchiveUrl = "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/Win32-latest/dinput8-Win32.zip";
               private const string SampClientInstallerUrl = "https://gta-multiplayer.cz/downloads/sa-mp-0.3.7-R5-2-MP-install.exe";
@@ -549,6 +550,7 @@ jobs:
                       // Prepare the GTA client for VEXORIUM custom models before launching multiplayer.
                       await EnsureModLoaderAsync();
                       await EnsureOpenMpLauncherAsync();
+                      await EnsureOpenMpClientAsync();
                       if (!File.Exists(OpenMpExe))
                           throw new Exception("После загрузки не найден клиент open.mp: " + OpenMpExe);
 
@@ -968,6 +970,117 @@ jobs:
                   File.WriteAllText(OpenMpTagFile, tag);
                   _status.Text = "Клиент open.mp загружен: " + tag;
                   _playButton.Text = "▶  ИГРАТЬ";
+              }
+
+              private async Task EnsureOpenMpClientAsync()
+              {
+                  string ompDirectory = Path.Combine(
+                      Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                      "mp.open.launcher", "omp");
+                  Directory.CreateDirectory(ompDirectory);
+
+                  string ompClientPath = Path.Combine(ompDirectory, "omp-client.dll");
+                  string temporaryPath = ompClientPath + ".download";
+
+                  try
+                  {
+                      _status.Text = "Проверяем клиент open.mp…";
+                      using var client = CreateHttpClient(TimeSpan.FromMinutes(3));
+                      string updateJson = await client.GetStringAsync(OpenMpUpdateInfoUrl);
+                      using var updateDocument = JsonDocument.Parse(updateJson);
+                      JsonElement updateInfo = updateDocument.RootElement;
+
+                      // open.mp launcher 1.7.0 identifies its client resource set as build 7.
+                      if (updateInfo.TryGetProperty("versions", out JsonElement versions) &&
+                          versions.ValueKind == JsonValueKind.Object &&
+                          versions.TryGetProperty("7", out JsonElement buildInfo))
+                      {
+                          updateInfo = buildInfo;
+                      }
+
+                      if (!updateInfo.TryGetProperty("ompPluginDownload", out JsonElement downloadElement) ||
+                          !updateInfo.TryGetProperty("ompPluginChecksum", out JsonElement checksumElement))
+                          throw new Exception("API open.mp не вернул ссылку и контрольную сумму клиента.");
+
+                      string downloadUrl = downloadElement.GetString() ?? "";
+                      string expectedMd5 = checksumElement.GetString() ?? "";
+                      if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadUri) ||
+                          downloadUri.Scheme != Uri.UriSchemeHttps ||
+                          string.IsNullOrWhiteSpace(expectedMd5))
+                          throw new Exception("API open.mp вернул некорректные данные клиента.");
+
+                      if (File.Exists(ompClientPath) && new FileInfo(ompClientPath).Length > 100000)
+                      {
+                          string existingMd5;
+                          await using (var existingStream = File.OpenRead(ompClientPath))
+                          {
+                              byte[] hash = await System.Security.Cryptography.MD5.HashDataAsync(existingStream);
+                              existingMd5 = Convert.ToHexString(hash);
+                          }
+
+                          if (string.Equals(existingMd5, expectedMd5, StringComparison.OrdinalIgnoreCase))
+                          {
+                              WriteLaunchLog("open.mp client DLL is up to date.");
+                              return;
+                          }
+                      }
+
+                      _status.Text = "Скачиваем компонент open.mp…";
+                      _progress.Visible = true;
+                      _progress.Style = ProgressBarStyle.Continuous;
+                      _progress.Value = 0;
+                      try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch { }
+
+                      using (var response = await client.GetAsync(
+                          downloadUri, HttpCompletionOption.ResponseHeadersRead))
+                      {
+                          response.EnsureSuccessStatusCode();
+                          long? totalBytes = response.Content.Headers.ContentLength;
+
+                          await using (var input = await response.Content.ReadAsStreamAsync())
+                          await using (var output = new FileStream(
+                              temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                          {
+                              byte[] buffer = new byte[81920];
+                              long downloaded = 0;
+                              int read;
+                              while ((read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+                              {
+                                  await output.WriteAsync(buffer.AsMemory(0, read));
+                                  downloaded += read;
+
+                                  if (totalBytes.HasValue && totalBytes.Value > 0)
+                                  {
+                                      int percent = (int)Math.Clamp(
+                                          downloaded * 100L / totalBytes.Value, 0L, 100L);
+                                      _progress.Value = percent;
+                                      _status.Text = $"Скачиваем компонент open.mp… {percent}%";
+                                  }
+                              }
+                          }
+                      }
+
+                      if (!File.Exists(temporaryPath) || new FileInfo(temporaryPath).Length < 100000)
+                          throw new Exception("Компонент open.mp скачан не полностью.");
+
+                      string downloadedMd5;
+                      await using (var downloadedStream = File.OpenRead(temporaryPath))
+                      {
+                          byte[] hash = await System.Security.Cryptography.MD5.HashDataAsync(downloadedStream);
+                          downloadedMd5 = Convert.ToHexString(hash);
+                      }
+
+                      if (!string.Equals(downloadedMd5, expectedMd5, StringComparison.OrdinalIgnoreCase))
+                          throw new Exception("Компонент open.mp не прошёл проверку контрольной суммы.");
+
+                      File.Move(temporaryPath, ompClientPath, true);
+                      WriteLaunchLog("Downloaded and verified current open.mp client DLL.");
+                  }
+                  finally
+                  {
+                      _progress.Visible = false;
+                      try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch { }
+                  }
               }
 
               private async Task UpdateLauncherAsync()
