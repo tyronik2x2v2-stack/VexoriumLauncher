@@ -232,8 +232,8 @@ jobs:
 
           internal sealed class LauncherForm : Form
           {
-              private const string ServerHost = "188.127.241.74";
-              private const string ServerPort = "1321";
+              private const string ServerHost = "2.26.1.227";
+              private const string ServerPort = "1122";
               private const string VersionUrl = "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/version.json";
               private const string LauncherDownloadUrl = "https://github.com/tyronik2x2v2-stack/VexoriumLauncher/releases/latest/download/VexoriumLauncher.exe";
               private const string CurrentVersion = "__LAUNCHER_VERSION__";
@@ -492,7 +492,7 @@ jobs:
                           _checkSucceeded = true;
                           _status.ForeColor = Color.FromArgb(106, 218, 157);
                           _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? $"Версия {CurrentVersion} актуальна. Клиент SA-MP установится автоматически при первом запуске."
+                              ? $"Версия {CurrentVersion} актуальна. Клиент open.mp будет автоматически загружен при первом запуске."
                               : $"Версия {CurrentVersion} актуальна. Выбери папку GTA San Andreas.";
                       }
                   }
@@ -535,20 +535,20 @@ jobs:
                   {
                       GameInstall.SaveNickname(nickname);
 
-                      string sampDll = Path.Combine(_gamePath!, "samp.dll");
-                      string sampExe = Path.Combine(_gamePath!, "samp.exe");
                       string gtaExe = Path.Combine(_gamePath!, "gta_sa.exe");
-
                       if (!File.Exists(gtaExe))
-                          throw new Exception("В папке GTA не найден gta_sa.exe: " + _gamePath);
-                      if (!File.Exists(sampDll) || !File.Exists(sampExe))
-                          throw new Exception("Не найден клиент SA-MP (samp.exe или samp.dll). Установи SA-MP 0.3.7 R1 в папку GTA.");
+                          throw new Exception("В выбранной папке не найден gta_sa.exe: " + _gamePath);
 
-                      _status.Text = "Запускаем GTA и подключаемся к Vexorium RolePlay…";
+                      // A clean GTA folder is valid: install the official open.mp launcher automatically.
+                      await EnsureOpenMpLauncherAsync();
+                      if (!File.Exists(OpenMpExe))
+                          throw new Exception("После загрузки не найден клиент open.mp: " + OpenMpExe);
+
+                      _status.Text = "Запускаем официальный клиент open.mp…";
                       var startInfo = new ProcessStartInfo
                       {
-                          FileName = sampExe,
-                          WorkingDirectory = _gamePath!,
+                          FileName = OpenMpExe,
+                          WorkingDirectory = OpenMpDirectory,
                           UseShellExecute = false,
                           CreateNoWindow = false,
                           WindowStyle = ProcessWindowStyle.Normal
@@ -557,12 +557,13 @@ jobs:
                       startInfo.ArgumentList.Add("-n");
                       startInfo.ArgumentList.Add(nickname);
                       startInfo.ArgumentList.Add("-c");
-
-                      var sampProcess = Process.Start(startInfo);
-                      if (sampProcess == null) throw new Exception("Windows не смог запустить SA-MP.");
-                      WriteLaunchLog("SA-MP client started pid=" + sampProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
+                      startInfo.ArgumentList.Add("-g");
+                      startInfo.ArgumentList.Add(gtaExe);
+                      var ompProcess = Process.Start(startInfo);
+                      if (ompProcess == null) throw new Exception("Windows не смог запустить клиент open.mp.");
+                      WriteLaunchLog("open.mp launcher started pid=" + ompProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "GTA запускается. Подключение к Vexorium RolePlay…";
+                      _status.Text = "Клиент open.mp запущен. Подключение к Vexorium RolePlay…";
                   }
                   catch (Exception ex)
                   {
