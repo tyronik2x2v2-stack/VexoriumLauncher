@@ -553,12 +553,15 @@ jobs:
                           CreateNoWindow = false,
                           WindowStyle = ProcessWindowStyle.Normal
                       };
-                      startInfo.ArgumentList.Add(ServerHost + ":" + ServerPort);
+                      // Official open.mp CLI syntax: -h host -p port -n nickname -g GTA folder.
+                      startInfo.ArgumentList.Add("-h");
+                      startInfo.ArgumentList.Add(ServerHost);
+                      startInfo.ArgumentList.Add("-p");
+                      startInfo.ArgumentList.Add(ServerPort);
                       startInfo.ArgumentList.Add("-n");
                       startInfo.ArgumentList.Add(nickname);
-                      startInfo.ArgumentList.Add("-c");
                       startInfo.ArgumentList.Add("-g");
-                      startInfo.ArgumentList.Add(gtaExe);
+                      startInfo.ArgumentList.Add(_gamePath!);
                       var ompProcess = Process.Start(startInfo);
                       if (ompProcess == null) throw new Exception("Windows не смог запустить клиент open.mp.");
                       WriteLaunchLog("open.mp launcher started pid=" + ompProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
