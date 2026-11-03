@@ -540,7 +540,6 @@ jobs:
 
               private const string GtaDriveUrl = "https://drive.usercontent.google.com/download?id=1tPOSqb_tT3Cm3x2WEa2Efk3UsbVbA23E&export=download&confirm=t";
 
-              private const string GtaDriveUrl = "https://drive.usercontent.google.com/download?id=1tPOSqb_tT3Cm3x2WEa2Efk3UsbVbA23E&export=download&confirm=t";
               private const string VexoriumModpackManifestUrl = "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/modpack.json";
 
               private async Task InstallOrPlayAsync()
