@@ -297,7 +297,6 @@ jobs:
                   body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210F));
                   body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
                   body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-
                   var sidebar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(10, 11, 15), Margin = Padding.Empty };
                   var brand = new Label
                   {
@@ -553,18 +552,19 @@ jobs:
                           CreateNoWindow = false,
                           WindowStyle = ProcessWindowStyle.Normal
                       };
-                      // Official open.mp CLI syntax: -h host -p port -n nickname -g GTA folder.
-                      startInfo.ArgumentList.Add("-h");
+                      // Use the exact long options documented by the official open.mp launcher.
+                      // --gamepath must point to the folder containing gta_sa.exe and samp.dll.
+                      startInfo.ArgumentList.Add("--host");
                       startInfo.ArgumentList.Add(ServerHost);
-                      startInfo.ArgumentList.Add("-p");
+                      startInfo.ArgumentList.Add("--port");
                       startInfo.ArgumentList.Add(ServerPort);
-                      startInfo.ArgumentList.Add("-n");
+                      startInfo.ArgumentList.Add("--name");
                       startInfo.ArgumentList.Add(nickname);
-                      startInfo.ArgumentList.Add("-g");
+                      startInfo.ArgumentList.Add("--gamepath");
                       startInfo.ArgumentList.Add(_gamePath!);
                       var ompProcess = Process.Start(startInfo);
                       if (ompProcess == null) throw new Exception("Windows не смог запустить клиент open.mp.");
-                      WriteLaunchLog("open.mp launcher started pid=" + ompProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
+                      WriteLaunchLog("open.mp launcher started pid=" + ompProcess.Id + " args=--host " + ServerHost + " --port " + ServerPort + " --name " + nickname + " --gamepath " + _gamePath);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
                       _status.Text = "Клиент open.mp запущен. Подключение к Vexorium RolePlay…";
                   }
@@ -597,8 +597,7 @@ jobs:
                       if (!info.Exists || info.Length < 5_000_000)
                           throw new Exception("Файл слишком маленький. Возможно, Google Drive вернул страницу подтверждения или доступ закрыт.");
                       byte[] sig = new byte[2];
-                      await using (var fs = File.OpenRead(tempFile)) await fs.ReadAsync(sig.AsMemory(0, 2));
-                      if (sig[0] == 0x50 && sig[1] == 0x4B)
+                      await using (var fs = File.OpenRead(tempFile)) await fs.ReadAsync(sig.AsMemory(0, 2));                      if (sig[0] == 0x50 && sig[1] == 0x4B)
                       {
                           _status.Text = "Распаковываем ZIP-архив GTA San Andreas…";
                           Directory.CreateDirectory(installDirectory);
@@ -797,16 +796,40 @@ jobs:
           $bmp = New-Object System.Drawing.Bitmap 256,256
           $g = [System.Drawing.Graphics]::FromImage($bmp)
           $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-          $g.Clear([System.Drawing.Color]::FromArgb(15,16,21))
-          $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(226,39,54),12)
-          $g.DrawEllipse($pen,14,14,228,228)
-          $font = New-Object System.Drawing.Font("Segoe UI",150,[System.Drawing.FontStyle]::Bold,[System.Drawing.GraphicsUnit]::Pixel)
-          $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(220,220,226))
-          $g.DrawString("V",$font,$brush,35,24)
+          $g.Clear([System.Drawing.Color]::FromArgb(12,13,18))
+          $bg = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+            (New-Object System.Drawing.Rectangle(0,0,256,256)),
+            [System.Drawing.Color]::FromArgb(48,18,27),
+            [System.Drawing.Color]::FromArgb(10,11,16),
+            45)
+          $g.FillRectangle($bg,0,0,256,256)
+          $ring = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(226,39,54),9)
+          $g.DrawEllipse($ring,13,13,230,230)
+          $inner = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(90,210,210,220),2)
+          $g.DrawEllipse($inner,27,27,202,202)
+          $points = [System.Drawing.Point[]]@(
+            (New-Object System.Drawing.Point 67,65),
+            (New-Object System.Drawing.Point 111,65),
+            (New-Object System.Drawing.Point 139,139),
+            (New-Object System.Drawing.Point 168,65),
+            (New-Object System.Drawing.Point 207,65),
+            (New-Object System.Drawing.Point 151,193),
+            (New-Object System.Drawing.Point 127,211),
+            (New-Object System.Drawing.Point 104,193))
+          $silver = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(235,237,242))
+          $g.FillPolygon($silver,$points)
+          $redBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(226,39,54))
+          $cut = [System.Drawing.Point[]]@(
+            (New-Object System.Drawing.Point 128,128),
+            (New-Object System.Drawing.Point 148,178),
+            (New-Object System.Drawing.Point 128,193),
+            (New-Object System.Drawing.Point 108,178))
+          $g.FillPolygon($redBrush,$cut)
           $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
           $stream = [System.IO.File]::Create(".\src\vexorium.ico")
           $icon.Save($stream)
-          $stream.Dispose(); $icon.Dispose(); $brush.Dispose(); $font.Dispose(); $pen.Dispose(); $g.Dispose(); $bmp.Dispose()
+          $stream.Dispose(); $icon.Dispose(); $silver.Dispose(); $redBrush.Dispose()
+          $inner.Dispose(); $ring.Dispose(); $bg.Dispose(); $g.Dispose(); $bmp.Dispose()
 
           dotnet publish .\src\VexoriumLauncher.csproj `
             --configuration Release `
