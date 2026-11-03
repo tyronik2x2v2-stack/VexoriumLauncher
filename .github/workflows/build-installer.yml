@@ -536,32 +536,33 @@ jobs:
                       GameInstall.SaveNickname(nickname);
 
                       string sampDll = Path.Combine(_gamePath!, "samp.dll");
+                      string sampExe = Path.Combine(_gamePath!, "samp.exe");
                       string gtaExe = Path.Combine(_gamePath!, "gta_sa.exe");
 
                       if (!File.Exists(gtaExe))
                           throw new Exception("В папке GTA не найден gta_sa.exe: " + _gamePath);
-                      if (!File.Exists(sampDll))
-                          throw new Exception("В папке GTA не найден samp.dll. Для запуска с SAMPFUNCS нужен установленный SA-MP 0.3.7 R1 в папке игры.");
+                      if (!File.Exists(sampDll) || !File.Exists(sampExe))
+                          throw new Exception("Не найден клиент SA-MP (samp.exe или samp.dll). Установи SA-MP 0.3.7 R1 в папку GTA.");
 
-                      _status.Text = "Запускаем клиент open.mp…";
+                      _status.Text = "Запускаем GTA и подключаемся к Vexorium RolePlay…";
                       var startInfo = new ProcessStartInfo
                       {
-                          FileName = OpenMpExe,
-                          WorkingDirectory = OpenMpDirectory,
+                          FileName = sampExe,
+                          WorkingDirectory = _gamePath!,
                           UseShellExecute = false,
-                          CreateNoWindow = true,
-                          WindowStyle = ProcessWindowStyle.Hidden
+                          CreateNoWindow = false,
+                          WindowStyle = ProcessWindowStyle.Normal
                       };
-                      startInfo.ArgumentList.Add("--host"); startInfo.ArgumentList.Add(ServerHost);
-                      startInfo.ArgumentList.Add("--port"); startInfo.ArgumentList.Add(ServerPort);
-                      startInfo.ArgumentList.Add("--name"); startInfo.ArgumentList.Add(nickname);
-                      startInfo.ArgumentList.Add("--gamepath"); startInfo.ArgumentList.Add(_gamePath!);
+                      startInfo.ArgumentList.Add(ServerHost + ":" + ServerPort);
+                      startInfo.ArgumentList.Add("-n");
+                      startInfo.ArgumentList.Add(nickname);
+                      startInfo.ArgumentList.Add("-c");
 
-                      var openMpProcess = Process.Start(startInfo);
-                      if (openMpProcess == null) throw new Exception("Windows не смог запустить open.mp Launcher.");
-                      WriteLaunchLog("open.mp launcher started in default client mode pid=" + openMpProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
+                      var sampProcess = Process.Start(startInfo);
+                      if (sampProcess == null) throw new Exception("Windows не смог запустить SA-MP.");
+                      WriteLaunchLog("SA-MP client started pid=" + sampProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Подключение запущено через клиент open.mp: " + ServerHost + ":" + ServerPort;
+                      _status.Text = "GTA запускается. Подключение к Vexorium RolePlay…";
                   }
                   catch (Exception ex)
                   {
