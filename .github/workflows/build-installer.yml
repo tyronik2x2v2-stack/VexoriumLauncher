@@ -241,6 +241,8 @@ jobs:
               private const string OpenMpReleaseApi = "https://api.github.com/repos/openmultiplayer/launcher/releases/latest";
               private const string ModLoaderArchiveUrl = "https://github.com/thelink2012/modloader/releases/download/v0.3.10/modloader.zip";
               private const string AsiLoaderArchiveUrl = "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/Win32-latest/dinput8-Win32.zip";
+              private const string SampClientInstallerUrl = "https://gta-multiplayer.cz/downloads/sa-mp-0.3.7-R5-2-MP-install.exe";
+              private const string SampClientInstallerSha256 = "24DFDA73544203FA88E1C07960F630DEEE736EDADF63338EC5FA0A5AD08BB079";
 
               private static readonly string VexoriumDirectory = @"C:\VEXORIUM";
               private static readonly string OpenMpDirectory = Path.Combine(VexoriumDirectory, "open.mp");
@@ -494,7 +496,7 @@ jobs:
                           _checkSucceeded = true;
                           _status.ForeColor = Color.FromArgb(106, 218, 157);
                           _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? $"Версия {CurrentVersion} актуальна. Клиент open.mp будет автоматически загружен при первом запуске."
+                              ? $"Версия {CurrentVersion} актуальна. При запуске лаунчер автоматически подготовит GTA для Vexorium."
                               : $"Версия {CurrentVersion} актуальна. Выбери папку GTA San Andreas.";
                       }
                   }
@@ -540,6 +542,9 @@ jobs:
                       string gtaExe = Path.Combine(_gamePath!, "gta_sa.exe");
                       if (!File.Exists(gtaExe))
                           throw new Exception("В выбранной папке не найден gta_sa.exe: " + _gamePath);
+
+                      // Install the multiplayer client into the selected GTA folder when it is missing.
+                      await EnsureSampClientAsync();
 
                       // Prepare the GTA client for VEXORIUM custom models before launching multiplayer.
                       await EnsureModLoaderAsync();
@@ -644,6 +649,130 @@ jobs:
                           DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
                   }
                   catch { }
+              }
+
+              private static bool IsValidSampClientDll(string path)
+              {
+                  try
+                  {
+                      if (!File.Exists(path) || new FileInfo(path).Length < 100000)
+                          return false;
+
+                      using var stream = File.OpenRead(path);
+                      byte[] signature = new byte[2];
+                      return stream.Read(signature, 0, signature.Length) == 2 &&
+                          signature[0] == (byte)'M' && signature[1] == (byte)'Z';
+                  }
+                  catch
+                  {
+                      return false;
+                  }
+              }
+
+              private async Task EnsureSampClientAsync()
+              {
+                  if (!GameInstall.IsGameFolder(_gamePath))
+                      throw new Exception("Сначала выбери папку GTA San Andreas.");
+
+                  string gameRoot = Path.GetFullPath(_gamePath!);
+                  string sampDllPath = Path.Combine(gameRoot, "samp.dll");
+
+                  if (IsValidSampClientDll(sampDllPath))
+                  {
+                      WriteLaunchLog("SA-MP client already present: " + sampDllPath);
+                      return;
+                  }
+
+                  string installerPath = Path.Combine(
+                      Path.GetTempPath(),
+                      "Vexorium-SA-MP-R5-2-" + Guid.NewGuid().ToString("N") + ".exe");
+
+                  try
+                  {
+                      _status.Text = "Скачиваем клиент SA-MP 0.3.7 R5-2…";
+                      _progress.Visible = true;
+                      _progress.Style = ProgressBarStyle.Continuous;
+                      _progress.Value = 0;
+
+                      using (var client = CreateHttpClient(TimeSpan.FromMinutes(10)))
+                      using (var response = await client.GetAsync(
+                          SampClientInstallerUrl, HttpCompletionOption.ResponseHeadersRead))
+                      {
+                          response.EnsureSuccessStatusCode();
+                          long? totalBytes = response.Content.Headers.ContentLength;
+
+                          await using (var input = await response.Content.ReadAsStreamAsync())
+                          await using (var output = new FileStream(
+                              installerPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                          {
+                              byte[] buffer = new byte[81920];
+                              long downloaded = 0;
+                              int read;
+                              while ((read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+                              {
+                                  await output.WriteAsync(buffer.AsMemory(0, read));
+                                  downloaded += read;
+
+                                  if (totalBytes.HasValue && totalBytes.Value > 0)
+                                  {
+                                      int percent = (int)Math.Clamp(
+                                          downloaded * 100L / totalBytes.Value, 0L, 100L);
+                                      _progress.Value = percent;
+                                      _status.Text = $"Скачиваем SA-MP 0.3.7 R5-2… {percent}%";
+                                  }
+                              }
+                          }
+                      }
+
+                      var installerInfo = new FileInfo(installerPath);
+                      if (!installerInfo.Exists || installerInfo.Length < 10000000)
+                          throw new Exception("Установщик SA-MP скачан не полностью.");
+
+                      _status.Text = "Проверяем установщик SA-MP…";
+                      string actualHash;
+                      await using (var hashStream = File.OpenRead(installerPath))
+                      {
+                          byte[] hash = await System.Security.Cryptography.SHA256.HashDataAsync(hashStream);
+                          actualHash = Convert.ToHexString(hash);
+                      }
+
+                      if (!string.Equals(
+                          actualHash, SampClientInstallerSha256, StringComparison.OrdinalIgnoreCase))
+                          throw new Exception("Контрольная сумма установщика SA-MP не совпала. Файл не будет запущен.");
+
+                      _status.Text = "Автоматически устанавливаем SA-MP в папку GTA…";
+                      var startInfo = new ProcessStartInfo
+                      {
+                          FileName = installerPath,
+                          WorkingDirectory = Path.GetTempPath(),
+                          UseShellExecute = false,
+                          CreateNoWindow = true,
+                          WindowStyle = ProcessWindowStyle.Hidden
+                      };
+
+                      // NSIS /D must be the final argument; it selects the exact folder containing gta_sa.exe.
+                      startInfo.ArgumentList.Add("/S");
+                      startInfo.ArgumentList.Add("/D=" + gameRoot);
+
+                      using var installerProcess = Process.Start(startInfo);
+                      if (installerProcess == null)
+                          throw new Exception("Windows не смог запустить установщик SA-MP.");
+
+                      await installerProcess.WaitForExitAsync();
+                      if (installerProcess.ExitCode != 0)
+                          throw new Exception("Установщик SA-MP завершился с кодом " + installerProcess.ExitCode + ".");
+
+                      if (!IsValidSampClientDll(sampDllPath))
+                          throw new Exception(
+                              "Установщик завершился, но samp.dll не появился рядом с gta_sa.exe. Проверь версию GTA и права на папку.");
+
+                      WriteLaunchLog("Installed SA-MP 0.3.7 R5-2-MP into " + gameRoot);
+                  }
+                  finally
+                  {
+                      _progress.Visible = false;
+                      try { if (File.Exists(installerPath)) File.Delete(installerPath); } catch { }
+                  }
               }
 
               private async Task EnsureModLoaderAsync()
