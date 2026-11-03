@@ -73,7 +73,8 @@ jobs:
               private static void Main()
               {
                   ApplicationConfiguration.Initialize();
-                  Application.Run(new LauncherForm(GameInstall.FindSavedPath()));
+                  // VEXORIUM uses one managed game location. Never ask players to browse for GTA.
+                  Application.Run(new LauncherForm(GameInstall.FindManagedGamePath()));
               }
           }
 
@@ -117,33 +118,8 @@ jobs:
 
               public static string? FindSavedPath()
               {
-                  string? managed = FindManagedGamePath();
-                  if (IsGameFolder(managed)) return managed;
-
-                  try
-                  {
-                      if (File.Exists(GamePathFile))
-                      {
-                          string saved = File.ReadAllText(GamePathFile).Trim();
-                          if (IsGameFolder(saved)) return saved;
-                      }
-                  }
-                  catch { }
-
-                  string legacyDirectory = Path.Combine(@"C:\VEXORIUM", "GTA San Andreas");
-                  try
-                  {
-                      if (Directory.Exists(legacyDirectory))
-                      {
-                          string? exe = Directory.GetFiles(
-                              legacyDirectory, "gta_sa.exe", SearchOption.AllDirectories).FirstOrDefault();
-                          if (!string.IsNullOrWhiteSpace(exe))
-                              return Path.GetDirectoryName(exe);
-                      }
-                  }
-                  catch { }
-
-                  return null;
+                  // Compatibility shim for older launcher builds: only the managed VEXORIUM folder is valid.
+                  return FindManagedGamePath();
               }
 
               public static void SaveGamePath(string path)
@@ -629,44 +605,26 @@ jobs:
 
               private async Task EnsureManagedGameAsync()
               {
+                  // A fresh VEXORIUM installation always goes to C:\\VEXORIUM\\Game.
+                  // If it is already present, reuse it; otherwise install the configured VEXORIUM game archive.
                   string? managedPath = GameInstall.FindManagedGamePath();
-                  if (GameInstall.IsGameFolder(managedPath))
+                  if (GameInstall.IsManagedGameFolder(managedPath))
                   {
                       _gamePath = managedPath;
                       GameInstall.SaveGamePath(managedPath!);
+                      WriteLaunchLog("Managed VEXORIUM game folder verified: " + managedPath);
                       return;
                   }
 
-                  string? oldGamePath = GameInstall.IsGameFolder(_gamePath)
-                      ? _gamePath : GameInstall.FindSavedPath();
-
-                  if (GameInstall.IsGameFolder(oldGamePath))
-                  {
-                      string source = Path.GetFullPath(oldGamePath!);
-                      string managedRoot = GameInstall.ManagedGameDirectory;
-                      if (string.Equals(source.TrimEnd('\\', '/'),
-                          Path.GetFullPath(managedRoot).TrimEnd('\\', '/'),
-                          StringComparison.OrdinalIgnoreCase))
-                      {
-                          _gamePath = source;
-                          GameInstall.SaveGamePath(source);
-                          return;
-                      }
-
-                      _status.Text = "Копируем существующую GTA в C:\\VEXORIUM\\Game…";
-                      _progress.Visible = true;
-                      _progress.Style = ProgressBarStyle.Marquee;
-                      await InstallManagedGameFromDirectoryAsync(source);
-                      _gamePath = GameInstall.FindManagedGamePath();
-                      if (!GameInstall.IsGameFolder(_gamePath))
-                          throw new Exception("Не удалось перенести существующую GTA в C:\\VEXORIUM\\Game.");
-                      GameInstall.SaveGamePath(_gamePath!);
-                      WriteLaunchLog("Copied existing GTA installation from " + source +
-                          " to " + GameInstall.ManagedGameDirectory);
-                      return;
-                  }
-
+                  _gamePath = null;
+                  _status.Text = "Готовим собственную игру VEXORIUM в C:\\VEXORIUM\\Game…";
                   await DownloadAndInstallGtaAsync();
+
+                  _gamePath = GameInstall.FindManagedGamePath();
+                  if (!GameInstall.IsManagedGameFolder(_gamePath))
+                      throw new Exception("Не удалось подготовить игру VEXORIUM в фиксированной папке C:\\VEXORIUM\\Game.");
+
+                  GameInstall.SaveGamePath(_gamePath!);
               }
 
               private async Task InstallManagedGameFromDirectoryAsync(string sourceDirectory)
@@ -1065,47 +1023,22 @@ jobs:
                       await installerProcess.WaitForExitAsync();
                       int silentInstallerExitCode = installerProcess.ExitCode;
 
-                      // Some NSIS installer builds may return a non-zero code without
-                      // placing the multiplayer files. Do not stop here: show the real
-                      // setup wizard so the user can select/confirm the GTA folder.
-                      if (!IsValidSampClientDll(sampDllPath))
+                      string sampExePath = Path.Combine(gameRoot, "samp.exe");
+                      if (!IsValidSampClientDll(sampDllPath) ||
+                          !File.Exists(sampExePath) || new FileInfo(sampExePath).Length < 100000)
                       {
-                          WriteLaunchLog("Silent SA-MP installer did not create samp.dll. Exit code: " +
-                              silentInstallerExitCode + "; target: " + gameRoot);
-
-                          _status.Text = "Автоматическая установка не завершилась — открываем мастер SA-MP…";
-                          MessageBox.Show(
-                              "Фоновая установка SA-MP не создала samp.dll (код " +
-                              silentInstallerExitCode + "). Сейчас откроется окно установки. " +
-                              "Укажи папку, где находится gta_sa.exe, и заверши установку.",
-                              "VEXORIUM — установка мультиплеера",
-                              MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                          var visibleStartInfo = new ProcessStartInfo
-                          {
-                              FileName = installerPath,
-                              WorkingDirectory = Path.GetTempPath(),
-                              UseShellExecute = true,
-                              WindowStyle = ProcessWindowStyle.Normal
-                          };
-                          // NSIS requires /D to be the final argument.
-                          visibleStartInfo.ArgumentList.Add("/D=" + gameRoot);
-
-                          using var visibleInstallerProcess = Process.Start(visibleStartInfo);
-                          if (visibleInstallerProcess == null)
-                              throw new Exception("Windows не смог открыть мастер установки SA-MP.");
-
-                          await visibleInstallerProcess.WaitForExitAsync();
-
-                          if (!IsValidSampClientDll(sampDllPath))
-                              throw new Exception(
-                                  "Установщик SA-MP (код фонового запуска: " + silentInstallerExitCode +
-                                  ") завершил работу, но samp.dll не появился рядом с gta_sa.exe. " +
-                                  "Папка для проверки: " + gameRoot +
-                                  ". Возможная причина — несовместимая версия GTA или выбранная в мастере другая папка.");
+                          WriteLaunchLog("SA-MP silent install failed verification. Exit code: " +
+                              silentInstallerExitCode + "; target: " + gameRoot +
+                              "; samp.dll=" + File.Exists(sampDllPath) +
+                              "; samp.exe=" + File.Exists(sampExePath));
+                          throw new Exception(
+                              "Не удалось автоматически установить SA-MP в C:\\VEXORIUM\\Game. " +
+                              "Установщик завершился с кодом " + silentInstallerExitCode +
+                              ". Окно выбора папки отключено: VEXORIUM всегда использует фиксированную папку. " +
+                              "Проверь свободное место и права на C:\\VEXORIUM, затем повтори установку.");
                       }
 
-                      WriteLaunchLog("Installed SA-MP 0.3.7 R5-2-MP into " + gameRoot +
+                      WriteLaunchLog("Installed SA-MP 0.3.7 R5-2-MP into fixed VEXORIUM game folder " + gameRoot +
                           " (silent installer exit code: " + silentInstallerExitCode + ")");
                   }
                   finally
