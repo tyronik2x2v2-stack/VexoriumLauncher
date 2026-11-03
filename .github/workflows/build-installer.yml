@@ -851,15 +851,21 @@ jobs:
                           throw new Exception("Windows не смог запустить установщик SA-MP.");
 
                       await installerProcess.WaitForExitAsync();
-                      if (installerProcess.ExitCode != 0)
-                          throw new Exception("Установщик SA-MP завершился с кодом " + installerProcess.ExitCode + ".");
+                      int silentInstallerExitCode = installerProcess.ExitCode;
 
+                      // Some NSIS installer builds may return a non-zero code without
+                      // placing the multiplayer files. Do not stop here: show the real
+                      // setup wizard so the user can select/confirm the GTA folder.
                       if (!IsValidSampClientDll(sampDllPath))
                       {
+                          WriteLaunchLog("Silent SA-MP installer did not create samp.dll. Exit code: " +
+                              silentInstallerExitCode + "; target: " + gameRoot);
+
                           _status.Text = "Автоматическая установка не завершилась — открываем мастер SA-MP…";
                           MessageBox.Show(
-                              "Автоматическая установка не создала samp.dll. Сейчас откроется мастер SA-MP. " +
-                              "Проверь, что папка установки совпадает с папкой, где находится gta_sa.exe, и заверши установку.",
+                              "Фоновая установка SA-MP не создала samp.dll (код " +
+                              silentInstallerExitCode + "). Сейчас откроется окно установки. " +
+                              "Укажи папку, где находится gta_sa.exe, и заверши установку.",
                               "VEXORIUM — установка мультиплеера",
                               MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -870,7 +876,7 @@ jobs:
                               UseShellExecute = true,
                               WindowStyle = ProcessWindowStyle.Normal
                           };
-                          // Keep the selected GTA directory as the installer's initial destination.
+                          // NSIS requires /D to be the final argument.
                           visibleStartInfo.ArgumentList.Add("/D=" + gameRoot);
 
                           using var visibleInstallerProcess = Process.Start(visibleStartInfo);
@@ -881,12 +887,14 @@ jobs:
 
                           if (!IsValidSampClientDll(sampDllPath))
                               throw new Exception(
-                                  "После установки samp.dll всё ещё отсутствует рядом с gta_sa.exe. " +
-                                  "Проверь совместимость GTA: SA-MP требует GTA San Andreas 1.0 US/EU; " +
-                                  "версии Steam и Direct2Drive не поддерживаются.");
+                                  "Установщик SA-MP (код фонового запуска: " + silentInstallerExitCode +
+                                  ") завершил работу, но samp.dll не появился рядом с gta_sa.exe. " +
+                                  "Папка для проверки: " + gameRoot +
+                                  ". Возможная причина — несовместимая версия GTA или выбранная в мастере другая папка.");
                       }
 
-                      WriteLaunchLog("Installed SA-MP 0.3.7 R5-2-MP into " + gameRoot);
+                      WriteLaunchLog("Installed SA-MP 0.3.7 R5-2-MP into " + gameRoot +
+                          " (silent installer exit code: " + silentInstallerExitCode + ")");
                   }
                   finally
                   {
