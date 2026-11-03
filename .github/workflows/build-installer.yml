@@ -855,8 +855,36 @@ jobs:
                           throw new Exception("Установщик SA-MP завершился с кодом " + installerProcess.ExitCode + ".");
 
                       if (!IsValidSampClientDll(sampDllPath))
-                          throw new Exception(
-                              "Установщик завершился, но samp.dll не появился рядом с gta_sa.exe. Проверь версию GTA и права на папку.");
+                      {
+                          _status.Text = "Автоматическая установка не завершилась — открываем мастер SA-MP…";
+                          MessageBox.Show(
+                              "Автоматическая установка не создала samp.dll. Сейчас откроется мастер SA-MP. " +
+                              "Проверь, что папка установки совпадает с папкой, где находится gta_sa.exe, и заверши установку.",
+                              "VEXORIUM — установка мультиплеера",
+                              MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                          var visibleStartInfo = new ProcessStartInfo
+                          {
+                              FileName = installerPath,
+                              WorkingDirectory = Path.GetTempPath(),
+                              UseShellExecute = true,
+                              WindowStyle = ProcessWindowStyle.Normal
+                          };
+                          // Keep the selected GTA directory as the installer's initial destination.
+                          visibleStartInfo.ArgumentList.Add("/D=" + gameRoot);
+
+                          using var visibleInstallerProcess = Process.Start(visibleStartInfo);
+                          if (visibleInstallerProcess == null)
+                              throw new Exception("Windows не смог открыть мастер установки SA-MP.");
+
+                          await visibleInstallerProcess.WaitForExitAsync();
+
+                          if (!IsValidSampClientDll(sampDllPath))
+                              throw new Exception(
+                                  "После установки samp.dll всё ещё отсутствует рядом с gta_sa.exe. " +
+                                  "Проверь совместимость GTA: SA-MP требует GTA San Andreas 1.0 US/EU; " +
+                                  "версии Steam и Direct2Drive не поддерживаются.");
+                      }
 
                       WriteLaunchLog("Installed SA-MP 0.3.7 R5-2-MP into " + gameRoot);
                   }
