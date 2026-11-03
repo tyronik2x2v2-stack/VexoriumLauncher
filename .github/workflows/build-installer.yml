@@ -443,7 +443,7 @@ jobs:
               private void RefreshButtons()
               {
                   _playButton.Enabled = _checkSucceeded && !_checking && !_updateAvailable && !_busy && GameInstall.IsGameFolder(_gamePath);
-                  _playButton.Text = GameInstall.IsGameFolder(_gamePath) && File.Exists(Path.Combine(_gamePath!, "samp.exe")) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ SA-MP 0.3.7 R1";
+                  _playButton.Text = GameInstall.IsGameFolder(_gamePath) && File.Exists(Path.Combine(_gamePath!, "samp.exe")) ? "▶  ИГРАТЬ" : "УСТАНОВИТЬ SA-MP 0.3.7 R5-2 MP";
                   _updateButton.Enabled = !_busy;
                   _chooseButton.Enabled = !_busy;
                   _retryButton.Enabled = !_busy && !_checking;
@@ -541,7 +541,7 @@ jobs:
                   _busy = true;
                   _progress.Visible = false;
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "Запускаем SA-MP 0.3.7 R1…";
+                  _status.Text = "Запускаем SA-MP 0.3.7 R5-2 MP…";
                   RefreshButtons();
 
                   try
@@ -573,17 +573,17 @@ jobs:
                       await Task.Delay(2500);
                       Process[] gameProcesses = Process.GetProcessesByName("gta_sa");
                       if (gameProcesses.Length == 0)
-                          throw new Exception("SA-MP не запустил GTA. Проверь, что установлен клиент SA-MP 0.3.7 R1 именно в выбранную папку GTA San Andreas.");
+                          throw new Exception("SA-MP не запустил GTA. Проверь, что установлен клиент SA-MP 0.3.7 R5-2 MP именно в выбранную папку GTA San Andreas.");
 
-                      WriteLaunchLog($"Запуск SA-MP 0.3.7 R1: host={ServerHost}, port={ServerPort}, nickname={nickname}, client={sampExe}, gtaProcesses={gameProcesses.Length}");
+                      WriteLaunchLog($"Запуск SA-MP 0.3.7 R5-2 MP: host={ServerHost}, port={ServerPort}, nickname={nickname}, client={sampExe}, gtaProcesses={gameProcesses.Length}");
                       _status.ForeColor = Color.FromArgb(235, 190, 93);
-                      _status.Text = "SA-MP 0.3.7 R1 запущен. Проверяй подключение к VEXORIUM.";
+                      _status.Text = "SA-MP 0.3.7 R5-2 MP запущен. Проверяй подключение к VEXORIUM.";
                   }
                   catch (Exception ex)
                   {
                       _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text = "Не удалось запустить SA-MP 0.3.7 R1.";
-                      MessageBox.Show("Ошибка запуска SA-MP 0.3.7 R1:\n" + ex.Message,
+                      _status.Text = "Не удалось запустить SA-MP 0.3.7 R5-2 MP.";
+                      MessageBox.Show("Ошибка запуска SA-MP 0.3.7 R5-2 MP:\n" + ex.Message,
                           "Ошибка клиента", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
                   finally
@@ -596,11 +596,11 @@ jobs:
               private async Task DownloadAndInstallSampAsync()
               {
                   // The official SA-MP page links this exact R1 installer mirror.
-                  const string installerUrl = "https://files.samp-client.ru/sa-mp-0.3.7-install.exe";
+                  const string installerUrl = "https://gta-multiplayer.cz/downloads/sa-mp-0.3.7-R5-2-MP-install.exe";
                   string tempInstaller = Path.Combine(Path.GetTempPath(), "Vexorium-SAMP-0.3.7-R1-" + Guid.NewGuid().ToString("N") + ".exe");
 
                   _status.ForeColor = Color.FromArgb(235, 190, 93);
-                  _status.Text = "SA-MP 0.3.7 R1 не найден. Скачиваем установщик…";
+                  _status.Text = "SA-MP 0.3.7 R5-2 MP не найден. Скачиваем установщик…";
                   _progress.Visible = true;
                   _progress.Style = ProgressBarStyle.Marquee;
 
@@ -630,7 +630,7 @@ jobs:
                               throw new Exception("Вместо установщика получен неверный файл. Попробуй позже.");
                       }
 
-                      _status.Text = "Открываем установщик SA-MP 0.3.7 R1. В нём выбери папку с gta_sa.exe…";
+                      _status.Text = "Открываем установщик SA-MP 0.3.7 R5-2 MP. В нём выбери папку с gta_sa.exe…";
                       // Run the vendor installer normally. Do not pass undocumented silent switches:
                       // they can make setup exit without installing samp.exe.
                       var setup = new ProcessStartInfo
@@ -650,8 +650,8 @@ jobs:
                       if (!File.Exists(installedClient))
                           throw new Exception("Установщик закрылся, но samp.exe не найден. В окне установки укажи именно папку, где лежит gta_sa.exe, и заверши установку.");
 
-                      WriteLaunchLog("SA-MP 0.3.7 R1 installer completed into " + _gamePath);
-                      _status.Text = "SA-MP 0.3.7 R1 установлен. Запускаем игру…";
+                      WriteLaunchLog("SA-MP 0.3.7 R5-2 MP installer completed into " + _gamePath);
+                      _status.Text = "SA-MP 0.3.7 R5-2 MP установлен. Запускаем игру…";
                   }
                   catch (HttpRequestException ex)
                   {
