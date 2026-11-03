@@ -543,7 +543,7 @@ jobs:
                       if (!File.Exists(sampDll))
                           throw new Exception("В папке GTA не найден samp.dll. Для запуска с SAMPFUNCS нужен установленный SA-MP 0.3.7 R1 в папке игры.");
 
-                      _status.Text = "Запускаем клиент SA-MP без внедрения open.mp…";
+                      _status.Text = "Запускаем клиент open.mp…";
                       var startInfo = new ProcessStartInfo
                       {
                           FileName = OpenMpExe,
@@ -556,14 +556,12 @@ jobs:
                       startInfo.ArgumentList.Add("--port"); startInfo.ArgumentList.Add(ServerPort);
                       startInfo.ArgumentList.Add("--name"); startInfo.ArgumentList.Add(nickname);
                       startInfo.ArgumentList.Add("--gamepath"); startInfo.ArgumentList.Add(_gamePath!);
-                      // Use the SA-MP client DLL from the selected GTA folder; do not inject omp-client.dll.
-                      startInfo.ArgumentList.Add("--no-omp");
 
                       var openMpProcess = Process.Start(startInfo);
                       if (openMpProcess == null) throw new Exception("Windows не смог запустить open.mp Launcher.");
-                      WriteLaunchLog("open.mp launcher started in --no-omp mode (uses local SA-MP samp.dll; install SA-MP 0.3.7 R1 for SAMPFUNCS) pid=" + openMpProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
+                      WriteLaunchLog("open.mp launcher started in default client mode pid=" + openMpProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Подключение запущено через SA-MP клиент из папки GTA: " + ServerHost + ":" + ServerPort;
+                      _status.Text = "Подключение запущено через клиент open.mp: " + ServerHost + ":" + ServerPort;
                   }
                   catch (Exception ex)
                   {
