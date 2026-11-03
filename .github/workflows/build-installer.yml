@@ -535,16 +535,48 @@ jobs:
                   {
                       GameInstall.SaveNickname(nickname);
                       await EnsureOpenMpLauncherAsync();
-                      _status.Text = "Запускаем официальный клиент open.mp…";
-                      var startInfo = new ProcessStartInfo { FileName = OpenMpExe, WorkingDirectory = OpenMpDirectory, UseShellExecute = true };
-                      startInfo.ArgumentList.Add("-h"); startInfo.ArgumentList.Add(ServerHost);
-                      startInfo.ArgumentList.Add("-p"); startInfo.ArgumentList.Add(ServerPort);
-                      startInfo.ArgumentList.Add("-n"); startInfo.ArgumentList.Add(nickname);
-                      startInfo.ArgumentList.Add("-g"); startInfo.ArgumentList.Add(_gamePath!);
-                      if (Process.Start(startInfo) == null) throw new Exception("Windows не смог запустить open.mp Launcher.");
-                      WriteLaunchLog("open.mp launched for " + ServerHost + ":" + ServerPort + " nickname=" + nickname);
+
+                      string ompClientDll = Path.Combine(
+                          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                          "mp.open.launcher", "omp", "omp-client.dll");
+                      string sampDll = Path.Combine(_gamePath!, "samp.dll");
+                      string gtaExe = Path.Combine(_gamePath!, "gta_sa.exe");
+
+                      if (!File.Exists(gtaExe))
+                          throw new Exception("В папке GTA не найден gta_sa.exe: " + _gamePath);
+                      if (!File.Exists(sampDll))
+                          throw new Exception("В папке GTA не найден samp.dll. Установи SA-MP/open.mp совместимый клиент в папку игры.");
+
+                      if (!File.Exists(ompClientDll))
+                      {
+                          WriteLaunchLog("omp-client.dll missing; opening official launcher for first-time setup.");
+                          Process.Start(new ProcessStartInfo { FileName = OpenMpExe, WorkingDirectory = OpenMpDirectory, UseShellExecute = true });
+                          _status.ForeColor = Color.FromArgb(255, 190, 90);
+                          _status.Text = "Нужна первичная установка open.mp. Открылось официальное окно — заверши установку клиента и нажми ИГРАТЬ ещё раз.";
+                          MessageBox.Show("Это первый запуск open.mp. В открывшемся официальном окне заверши установку/обновление клиента open.mp. После этого закрой его и снова нажми «ИГРАТЬ» в VEXORIUM.",
+                              "Первичная настройка open.mp", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                          return;
+                      }
+
+                      _status.Text = "Подключаемся к VEXORIUM ROLEPLAY…";
+                      var startInfo = new ProcessStartInfo
+                      {
+                          FileName = OpenMpExe,
+                          WorkingDirectory = OpenMpDirectory,
+                          UseShellExecute = false,
+                          CreateNoWindow = true,
+                          WindowStyle = ProcessWindowStyle.Hidden
+                      };
+                      startInfo.ArgumentList.Add("--host"); startInfo.ArgumentList.Add(ServerHost);
+                      startInfo.ArgumentList.Add("--port"); startInfo.ArgumentList.Add(ServerPort);
+                      startInfo.ArgumentList.Add("--name"); startInfo.ArgumentList.Add(nickname);
+                      startInfo.ArgumentList.Add("--gamepath"); startInfo.ArgumentList.Add(_gamePath!);
+
+                      var openMpProcess = Process.Start(startInfo);
+                      if (openMpProcess == null) throw new Exception("Windows не смог запустить open.mp Launcher.");
+                      WriteLaunchLog("open.mp CLI started pid=" + openMpProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "open.mp запущен. Подключайся к VEXORIUM ROLEPLAY.";
+                      _status.Text = "Команда подключения отправлена: " + ServerHost + ":" + ServerPort + ". Ожидай запуск игры.";
                   }
                   catch (Exception ex)
                   {
