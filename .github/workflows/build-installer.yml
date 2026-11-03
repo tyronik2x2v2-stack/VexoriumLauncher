@@ -534,31 +534,16 @@ jobs:
                   try
                   {
                       GameInstall.SaveNickname(nickname);
-                      await EnsureOpenMpLauncherAsync();
 
-                      string ompClientDll = Path.Combine(
-                          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                          "mp.open.launcher", "omp", "omp-client.dll");
                       string sampDll = Path.Combine(_gamePath!, "samp.dll");
                       string gtaExe = Path.Combine(_gamePath!, "gta_sa.exe");
 
                       if (!File.Exists(gtaExe))
                           throw new Exception("В папке GTA не найден gta_sa.exe: " + _gamePath);
                       if (!File.Exists(sampDll))
-                          throw new Exception("В папке GTA не найден samp.dll. Установи SA-MP/open.mp совместимый клиент в папку игры.");
+                          throw new Exception("В папке GTA не найден samp.dll. Для запуска с SAMPFUNCS нужен установленный SA-MP 0.3.7 R1 в папке игры.");
 
-                      if (!File.Exists(ompClientDll))
-                      {
-                          WriteLaunchLog("omp-client.dll missing; opening official launcher for first-time setup.");
-                          Process.Start(new ProcessStartInfo { FileName = OpenMpExe, WorkingDirectory = OpenMpDirectory, UseShellExecute = true });
-                          _status.ForeColor = Color.FromArgb(255, 190, 90);
-                          _status.Text = "Нужна первичная установка open.mp. Открылось официальное окно — заверши установку клиента и нажми ИГРАТЬ ещё раз.";
-                          MessageBox.Show("Это первый запуск open.mp. В открывшемся официальном окне заверши установку/обновление клиента open.mp. После этого закрой его и снова нажми «ИГРАТЬ» в VEXORIUM.",
-                              "Первичная настройка open.mp", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                          return;
-                      }
-
-                      _status.Text = "Подключаемся к VEXORIUM ROLEPLAY…";
+                      _status.Text = "Запускаем клиент SA-MP без внедрения open.mp…";
                       var startInfo = new ProcessStartInfo
                       {
                           FileName = OpenMpExe,
@@ -571,12 +556,14 @@ jobs:
                       startInfo.ArgumentList.Add("--port"); startInfo.ArgumentList.Add(ServerPort);
                       startInfo.ArgumentList.Add("--name"); startInfo.ArgumentList.Add(nickname);
                       startInfo.ArgumentList.Add("--gamepath"); startInfo.ArgumentList.Add(_gamePath!);
+                      // Use the SA-MP client DLL from the selected GTA folder; do not inject omp-client.dll.
+                      startInfo.ArgumentList.Add("--no-omp");
 
                       var openMpProcess = Process.Start(startInfo);
                       if (openMpProcess == null) throw new Exception("Windows не смог запустить open.mp Launcher.");
-                      WriteLaunchLog("open.mp CLI started pid=" + openMpProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
+                      WriteLaunchLog("open.mp launcher started in --no-omp mode (uses local SA-MP samp.dll; install SA-MP 0.3.7 R1 for SAMPFUNCS) pid=" + openMpProcess.Id + " for " + ServerHost + ":" + ServerPort + " nickname=" + nickname + " game=" + _gamePath);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Команда подключения отправлена: " + ServerHost + ":" + ServerPort + ". Ожидай запуск игры.";
+                      _status.Text = "Подключение запущено через SA-MP клиент из папки GTA: " + ServerHost + ":" + ServerPort;
                   }
                   catch (Exception ex)
                   {
