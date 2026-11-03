@@ -83,12 +83,43 @@ jobs:
                   Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vexorium");
               private static readonly string GamePathFile = Path.Combine(ConfigDirectory, "game-path.txt");
               private static readonly string NicknameFile = Path.Combine(ConfigDirectory, "nickname.txt");
+              public static readonly string ManagedGameDirectory = @"C:\VEXORIUM\Game";
 
               public static bool IsGameFolder(string? path) =>
                   !string.IsNullOrWhiteSpace(path) && File.Exists(Path.Combine(path, "gta_sa.exe"));
 
+              public static bool IsManagedGameFolder(string? path)
+              {
+                  if (!IsGameFolder(path)) return false;
+                  string fullPath = Path.GetFullPath(path!);
+                  string root = Path.GetFullPath(ManagedGameDirectory)
+                      .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                  return string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase) ||
+                      fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+              }
+
+              public static string? FindManagedGamePath()
+              {
+                  if (IsGameFolder(ManagedGameDirectory)) return ManagedGameDirectory;
+                  try
+                  {
+                      if (Directory.Exists(ManagedGameDirectory))
+                      {
+                          string? exe = Directory.GetFiles(
+                              ManagedGameDirectory, "gta_sa.exe", SearchOption.AllDirectories).FirstOrDefault();
+                          if (!string.IsNullOrWhiteSpace(exe))
+                              return Path.GetDirectoryName(exe);
+                      }
+                  }
+                  catch { }
+                  return null;
+              }
+
               public static string? FindSavedPath()
               {
+                  string? managed = FindManagedGamePath();
+                  if (IsGameFolder(managed)) return managed;
+
                   try
                   {
                       if (File.Exists(GamePathFile))
@@ -98,7 +129,27 @@ jobs:
                       }
                   }
                   catch { }
+
+                  string legacyDirectory = Path.Combine(@"C:\VEXORIUM", "GTA San Andreas");
+                  try
+                  {
+                      if (Directory.Exists(legacyDirectory))
+                      {
+                          string? exe = Directory.GetFiles(
+                              legacyDirectory, "gta_sa.exe", SearchOption.AllDirectories).FirstOrDefault();
+                          if (!string.IsNullOrWhiteSpace(exe))
+                              return Path.GetDirectoryName(exe);
+                      }
+                  }
+                  catch { }
+
                   return null;
+              }
+
+              public static void SaveGamePath(string path)
+              {
+                  Directory.CreateDirectory(ConfigDirectory);
+                  File.WriteAllText(GamePathFile, path);
               }
 
               public static string ReadNickname()
@@ -123,32 +174,6 @@ jobs:
                       File.WriteAllText(NicknameFile, nickname);
                   }
                   catch { }
-              }
-
-              public static string? PickGameFolder()
-              {
-                  using var dialog = new FolderBrowserDialog
-                  {
-                      Description = "Выберите папку, в которой находится gta_sa.exe",
-                      UseDescriptionForTitle = true,
-                      ShowNewFolderButton = false
-                  };
-
-                  if (dialog.ShowDialog() != DialogResult.OK) return null;
-                  if (!IsGameFolder(dialog.SelectedPath))
-                  {
-                      MessageBox.Show("В выбранной папке не найден gta_sa.exe. Выберите именно папку GTA San Andreas.",
-                          "Папка GTA не найдена", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                      return null;
-                  }
-
-                  try
-                  {
-                      Directory.CreateDirectory(ConfigDirectory);
-                      File.WriteAllText(GamePathFile, dialog.SelectedPath);
-                  }
-                  catch { }
-                  return dialog.SelectedPath;
               }
           }
 
@@ -262,7 +287,6 @@ jobs:
               private readonly ProgressBar _progress;
               private readonly RoundedButton _playButton;
               private readonly RoundedButton _updateButton;
-              private readonly RoundedButton _chooseButton;
               private readonly RoundedButton _retryButton;
 
               private static readonly Color Background = Color.FromArgb(15, 16, 21);
@@ -384,11 +408,9 @@ jobs:
                   lower.Controls.Add(news, 0, 0);
 
                   var quick = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor };
-                  quick.Controls.Add(new Label { Text = "★  БЫСТРЫЕ ДЕЙСТВИЯ", Location = new Point(17, 13), Size = new Size(250, 26), ForeColor = White, Font = new Font("Segoe UI", 11F, FontStyle.Bold) });
-                  _chooseButton = MakeButton("ВЫБРАТЬ ПАПКУ GTA", Color.FromArgb(40, 41, 49), Color.FromArgb(62, 63, 72), White, 220);
-                  _chooseButton.Location = new Point(17, 53); _chooseButton.Size = new Size(220, 38);
-                  _chooseButton.Click += (_, _) => { string? selected = GameInstall.PickGameFolder(); if (!string.IsNullOrWhiteSpace(selected)) _gamePath = selected; RefreshButtons(); };
-                  quick.Controls.Add(_chooseButton);
+                  quick.Controls.Add(new Label { Text = "★  ЕДИНАЯ УСТАНОВКА VEXORIUM", Location = new Point(17, 13), Size = new Size(310, 26), ForeColor = White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) });
+                  quick.Controls.Add(new Label { Text = "Игра: C:\\VEXORIUM\\Game", Location = new Point(18, 53), Size = new Size(300, 22), ForeColor = Color.FromArgb(190, 190, 198), Font = new Font("Segoe UI", 9F, FontStyle.Bold) });
+                  quick.Controls.Add(new Label { Text = "Моды и обновления устанавливаются автоматически", Location = new Point(18, 82), Size = new Size(330, 36), ForeColor = Muted, Font = new Font("Segoe UI", 8F) });
                   lower.Controls.Add(quick, 1, 0); content.Controls.Add(lower);
 
                   _updateButton = MakeButton("ОБНОВИТЬ", Green, Color.FromArgb(55, 177, 116), White, 160); _updateButton.Visible = false;
@@ -450,9 +472,8 @@ jobs:
               private void RefreshButtons()
               {
                   _playButton.Enabled = _checkSucceeded && !_checking && !_updateAvailable && !_busy;
-                  _playButton.Text = GameInstall.IsGameFolder(_gamePath) ? "▶  ИГРАТЬ" : "⬇  УСТАНОВИТЬ";
+                  _playButton.Text = GameInstall.IsManagedGameFolder(_gamePath) ? "▶  ИГРАТЬ" : "⬇  УСТАНОВИТЬ VEXORIUM";
                   _updateButton.Enabled = !_busy;
-                  _chooseButton.Enabled = !_busy;
                   _retryButton.Enabled = !_busy && !_checking;
               }
 
@@ -496,9 +517,9 @@ jobs:
                       {
                           _checkSucceeded = true;
                           _status.ForeColor = Color.FromArgb(106, 218, 157);
-                          _status.Text = GameInstall.IsGameFolder(_gamePath)
-                              ? $"Версия {CurrentVersion} актуальна. При запуске лаунчер автоматически подготовит GTA для Vexorium."
-                              : $"Версия {CurrentVersion} актуальна. Выбери папку GTA San Andreas.";
+                          _status.Text = GameInstall.IsManagedGameFolder(_gamePath)
+                              ? $"Версия {CurrentVersion} актуальна. Игра и моды VEXORIUM установлены в C:\\VEXORIUM."
+                              : $"Версия {CurrentVersion} актуальна. Нажми «УСТАНОВИТЬ VEXORIUM» — лаунчер сам подготовит игру в C:\\VEXORIUM.";
                       }
                   }
                   catch (Exception ex)
@@ -519,14 +540,12 @@ jobs:
 
               private const string GtaDriveUrl = "https://drive.usercontent.google.com/download?id=1tPOSqb_tT3Cm3x2WEa2Efk3UsbVbA23E&export=download&confirm=t";
 
+              private const string GtaDriveUrl = "https://drive.usercontent.google.com/download?id=1tPOSqb_tT3Cm3x2WEa2Efk3UsbVbA23E&export=download&confirm=t";
+              private const string VexoriumModpackManifestUrl = "https://raw.githubusercontent.com/tyronik2x2v2-stack/VexoriumLauncher/main/modpack.json";
+
               private async Task InstallOrPlayAsync()
               {
                   if (!_checkSucceeded || _checking || _updateAvailable || _busy) return;
-                  if (!GameInstall.IsGameFolder(_gamePath))
-                  {
-                      await DownloadAndInstallGtaAsync();
-                      return;
-                  }
 
                   string nickname = _nickname.Text.Trim();
                   if (nickname.Length < 3 || nickname.Length > 24)
@@ -541,17 +560,24 @@ jobs:
                   try
                   {
                       GameInstall.SaveNickname(nickname);
+                      await EnsureManagedGameAsync();
+
+                      if (!GameInstall.IsGameFolder(_gamePath))
+                          throw new Exception("Не удалось подготовить GTA San Andreas в C:\\VEXORIUM\\Game.");
 
                       string gameRoot = Path.GetFullPath(_gamePath!);
                       string gtaExe = Path.Combine(gameRoot, "gta_sa.exe");
                       if (!File.Exists(gtaExe))
-                          throw new Exception("В выбранной папке не найден gta_sa.exe: " + gameRoot);
+                          throw new Exception("В установленной папке VEXORIUM не найден gta_sa.exe: " + gameRoot);
 
-                      // Ensure the classic SA-MP client is installed beside gta_sa.exe.
+                      _status.Text = "Устанавливаем мультиплеерный клиент…";
                       await EnsureSampClientAsync();
 
-                      // Install/prepare visual mods, but launch the SA-MP client directly.
+                      _status.Text = "Устанавливаем загрузчик модификаций…";
                       await EnsureModLoaderAsync();
+
+                      _status.Text = "Проверяем пакет автомобилей, скинов, аксессуаров и карты VEXORIUM…";
+                      await EnsureVexoriumModPackAsync();
 
                       string sampExe = Path.Combine(gameRoot, "samp.exe");
                       string sampDll = Path.Combine(gameRoot, "samp.dll");
@@ -561,7 +587,6 @@ jobs:
                           throw new Exception("Не найден рабочий samp.dll рядом с gta_sa.exe. Путь: " + sampDll);
 
                       _status.Text = "Запускаем SA-MP и подключаемся к VEXORIUM…";
-
                       var startInfo = new ProcessStartInfo
                       {
                           FileName = sampExe,
@@ -585,72 +610,283 @@ jobs:
                       WriteLaunchLog("SA-MP client started pid=" + sampProcess.Id +
                           ", host=" + ServerHost + ", port=" + ServerPort +
                           ", nickname=" + nickname + ", game=" + gameRoot);
-
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "SA-MP запущен. Подключение к VEXORIUM передано клиенту.";
+                      _status.Text = "VEXORIUM запущен. Игра и клиентские моды подготовлены.";
                   }
                   catch (Exception ex)
                   {
                       _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text = "Не удалось запустить SA-MP.";
-                      MessageBox.Show("Ошибка запуска SA-MP:\\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      _status.Text = "Не удалось подготовить или запустить VEXORIUM.";
+                      MessageBox.Show("Ошибка VEXORIUM:\\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
                   finally
                   {
                       _busy = false;
+                      _progress.Visible = false;
+                      _progress.Style = ProgressBarStyle.Continuous;
                       RefreshButtons();
+                  }
+              }
+
+              private async Task EnsureManagedGameAsync()
+              {
+                  string? managedPath = GameInstall.FindManagedGamePath();
+                  if (GameInstall.IsGameFolder(managedPath))
+                  {
+                      _gamePath = managedPath;
+                      GameInstall.SaveGamePath(managedPath!);
+                      return;
+                  }
+
+                  string? oldGamePath = GameInstall.IsGameFolder(_gamePath)
+                      ? _gamePath : GameInstall.FindSavedPath();
+
+                  if (GameInstall.IsGameFolder(oldGamePath))
+                  {
+                      string source = Path.GetFullPath(oldGamePath!);
+                      string managedRoot = GameInstall.ManagedGameDirectory;
+                      if (string.Equals(source.TrimEnd('\\', '/'),
+                          Path.GetFullPath(managedRoot).TrimEnd('\\', '/'),
+                          StringComparison.OrdinalIgnoreCase))
+                      {
+                          _gamePath = source;
+                          GameInstall.SaveGamePath(source);
+                          return;
+                      }
+
+                      _status.Text = "Копируем существующую GTA в C:\\VEXORIUM\\Game…";
+                      _progress.Visible = true;
+                      _progress.Style = ProgressBarStyle.Marquee;
+                      await InstallManagedGameFromDirectoryAsync(source);
+                      _gamePath = GameInstall.FindManagedGamePath();
+                      if (!GameInstall.IsGameFolder(_gamePath))
+                          throw new Exception("Не удалось перенести существующую GTA в C:\\VEXORIUM\\Game.");
+                      GameInstall.SaveGamePath(_gamePath!);
+                      WriteLaunchLog("Copied existing GTA installation from " + source +
+                          " to " + GameInstall.ManagedGameDirectory);
+                      return;
+                  }
+
+                  await DownloadAndInstallGtaAsync();
+              }
+
+              private async Task InstallManagedGameFromDirectoryAsync(string sourceDirectory)
+              {
+                  string root = @"C:\VEXORIUM";
+                  string stagedGame = Path.Combine(root, "Game.installing");
+                  if (Directory.Exists(stagedGame))
+                      Directory.Delete(stagedGame, true);
+                  Directory.CreateDirectory(stagedGame);
+
+                  await Task.Run(() => CopyDirectoryWithoutOverwrite(sourceDirectory, stagedGame));
+                  if (!GameInstall.IsGameFolder(stagedGame))
+                  {
+                      Directory.Delete(stagedGame, true);
+                      throw new Exception("В исходной папке нет gta_sa.exe: " + sourceDirectory);
+                  }
+
+                  PromoteManagedGameDirectory(stagedGame);
+              }
+
+              private static void PromoteManagedGameDirectory(string stagedGame)
+              {
+                  string target = GameInstall.ManagedGameDirectory;
+                  string? backup = null;
+                  if (Directory.Exists(target))
+                  {
+                      backup = target + ".previous-" + DateTime.Now.ToString("yyyyMMddHHmmss");
+                      Directory.Move(target, backup);
+                  }
+
+                  try
+                  {
+                      Directory.Move(stagedGame, target);
+                  }
+                  catch
+                  {
+                      if (backup != null && Directory.Exists(backup) && !Directory.Exists(target))
+                          Directory.Move(backup, target);
+                      throw;
                   }
               }
 
               private async Task DownloadAndInstallGtaAsync()
               {
-                  _busy = true; RefreshButtons();
-                  _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee;
-                  string tempFile = Path.Combine(Path.GetTempPath(), "Vexorium-GTA-" + Guid.NewGuid().ToString("N") + ".bin");
-                  string installDirectory = Path.Combine(VexoriumDirectory, "GTA San Andreas");
+                  string tempFile = Path.Combine(Path.GetTempPath(), "Vexorium-GTA-" + Guid.NewGuid().ToString("N") + ".zip");
+                  string extractDirectory = Path.Combine(Path.GetTempPath(), "Vexorium-GTA-Extract-" + Guid.NewGuid().ToString("N"));
+                  string stagedGame = Path.Combine(@"C:\VEXORIUM", "Game.installing");
                   try
                   {
-                      Directory.CreateDirectory(VexoriumDirectory);
-                      _status.Text = "Скачиваем файлы GTA San Andreas с Google Drive…";
-                      using var client = CreateHttpClient(TimeSpan.FromMinutes(30));
-                      using var response = await client.GetAsync(GtaDriveUrl, HttpCompletionOption.ResponseHeadersRead);
-                      if (!response.IsSuccessStatusCode) throw new Exception("Google Drive вернул HTTP " + (int)response.StatusCode + ".");
+                      Directory.CreateDirectory(@"C:\VEXORIUM");
+                      if (Directory.Exists(stagedGame))
+                          Directory.Delete(stagedGame, true);
+
+                      _status.Text = "Скачиваем архив GTA San Andreas…";
+                      _progress.Visible = true;
+                      _progress.Style = ProgressBarStyle.Marquee;
+
+                      using var client = CreateHttpClient(TimeSpan.FromMinutes(45));
+                      using var response = await client.GetAsync(
+                          GtaDriveUrl, HttpCompletionOption.ResponseHeadersRead);
+                      response.EnsureSuccessStatusCode();
+
                       await using (var input = await response.Content.ReadAsStreamAsync())
                       await using (var output = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
                           await input.CopyToAsync(output);
+
                       var info = new FileInfo(tempFile);
                       if (!info.Exists || info.Length < 5_000_000)
-                          throw new Exception("Файл слишком маленький. Возможно, Google Drive вернул страницу подтверждения или доступ закрыт.");
-                      byte[] sig = new byte[2];
-                      await using (var fs = File.OpenRead(tempFile)) await fs.ReadAsync(sig.AsMemory(0, 2));                      if (sig[0] == 0x50 && sig[1] == 0x4B)
+                          throw new Exception("Архив GTA скачан не полностью. Проверь доступ к опубликованному архиву.");
+
+                      byte[] signature = new byte[2];
+                      await using (var stream = File.OpenRead(tempFile))
                       {
-                          _status.Text = "Распаковываем ZIP-архив GTA San Andreas…";
-                          Directory.CreateDirectory(installDirectory);
-                          ZipFile.ExtractToDirectory(tempFile, installDirectory, true);
-                          string? gtaExe = Directory.GetFiles(installDirectory, "gta_sa.exe", SearchOption.AllDirectories).FirstOrDefault();
-                          if (gtaExe == null) throw new Exception("В ZIP-архиве не найден gta_sa.exe.");
-                          _gamePath = Path.GetDirectoryName(gtaExe);
+                          if (await stream.ReadAsync(signature.AsMemory(0, 2)) != 2 ||
+                              signature[0] != 0x50 || signature[1] != 0x4B)
+                              throw new Exception("По ссылке получен не ZIP-архив GTA. Установка остановлена без изменения существующей игры.");
                       }
-                      else
-                      {
-                          throw new Exception("Ссылка скачала не ZIP-архив. Напиши, какой формат у файла на Google Drive (ZIP, RAR, 7Z или EXE), чтобы добавить правильную распаковку.");
-                      }
-                      if (!GameInstall.IsGameFolder(_gamePath)) throw new Exception("Не удалось найти установленную GTA San Andreas.");
-                      _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "GTA San Andreas установлена. Теперь нажми «ИГРАТЬ» для подготовки open.mp.";
-                      MessageBox.Show("GTA San Andreas подготовлена. Нажми «ИГРАТЬ», чтобы загрузить open.mp.", "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                  }
-                  catch (Exception ex)
-                  {
-                      _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text = "Не удалось установить GTA San Andreas.";
-                      MessageBox.Show("Ошибка установки GTA San Andreas:\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                      _status.Text = "Распаковываем GTA во временную папку…";
+                      Directory.CreateDirectory(extractDirectory);
+                      ZipFile.ExtractToDirectory(tempFile, extractDirectory, true);
+
+                      string? gtaExe = Directory.GetFiles(
+                          extractDirectory, "gta_sa.exe", SearchOption.AllDirectories).FirstOrDefault();
+                      if (string.IsNullOrWhiteSpace(gtaExe))
+                          throw new Exception("В архиве не найден gta_sa.exe.");
+
+                      string sourceGameDirectory = Path.GetDirectoryName(gtaExe)!;
+                      Directory.CreateDirectory(stagedGame);
+                      await Task.Run(() => CopyDirectoryWithoutOverwrite(sourceGameDirectory, stagedGame));
+                      if (!GameInstall.IsGameFolder(stagedGame))
+                          throw new Exception("После распаковки в установочной папке не найден gta_sa.exe.");
+
+                      PromoteManagedGameDirectory(stagedGame);
+                      _gamePath = GameInstall.FindManagedGamePath();
+                      if (!GameInstall.IsGameFolder(_gamePath))
+                          throw new Exception("Не удалось завершить установку GTA в C:\\VEXORIUM\\Game.");
+
+                      GameInstall.SaveGamePath(_gamePath!);
+                      WriteLaunchLog("Installed GTA archive into " + GameInstall.ManagedGameDirectory);
+                      _status.Text = "GTA установлена в C:\\VEXORIUM\\Game. Продолжаем подготовку VEXORIUM…";
                   }
                   finally
                   {
-                      _progress.Visible = false; _progress.Style = ProgressBarStyle.Continuous; _busy = false;
                       try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
-                      RefreshButtons();
+                      try { if (Directory.Exists(extractDirectory)) Directory.Delete(extractDirectory, true); } catch { }
+                      try { if (Directory.Exists(stagedGame)) Directory.Delete(stagedGame, true); } catch { }
+                  }
+              }
+
+              private async Task EnsureVexoriumModPackAsync()
+              {
+                  string gameRoot = _gamePath!;
+                  string finalModsDirectory = Path.Combine(gameRoot, "modloader", "VEXORIUM");
+                  string[] categories = {
+                      "Vehicles", "Skins", "Accessories", "Clothing",
+                      "Map", "Buildings", "Textures", "Audio"
+                  };
+                  Directory.CreateDirectory(finalModsDirectory);
+                  foreach (string category in categories)
+                      Directory.CreateDirectory(Path.Combine(finalModsDirectory, category));
+
+                  using var client = CreateHttpClient(TimeSpan.FromMinutes(2));
+                  string manifestText = await client.GetStringAsync(VexoriumModpackManifestUrl);
+                  using var manifest = JsonDocument.Parse(manifestText);
+                  JsonElement root = manifest.RootElement;
+
+                  string version = root.TryGetProperty("version", out JsonElement versionElement)
+                      ? versionElement.GetString() ?? "" : "";
+                  string downloadUrl = root.TryGetProperty("downloadUrl", out JsonElement urlElement)
+                      ? urlElement.GetString() ?? "" : "";
+                  string expectedSha256 = root.TryGetProperty("sha256", out JsonElement hashElement)
+                      ? hashElement.GetString() ?? "" : "";
+
+                  if (string.IsNullOrWhiteSpace(downloadUrl))
+                  {
+                      WriteLaunchLog("VEXORIUM modpack folders prepared; no downloadable model package is published yet.");
+                      _status.Text = "Каталог модов VEXORIUM подготовлен. Проверена версия пакета ресурсов…";
+                      return;
+                  }
+
+                  if (string.IsNullOrWhiteSpace(version) || expectedSha256.Length != 64 ||
+                      expectedSha256.Any(c => !Uri.IsHexDigit(c)))
+                      throw new Exception("Файл modpack.json содержит неверную версию или SHA-256 пакета.");
+
+                  string versionFile = Path.Combine(@"C:\VEXORIUM", "modpack-version.txt");
+                  string installedVersion = "";
+                  try { if (File.Exists(versionFile)) installedVersion = File.ReadAllText(versionFile).Trim(); } catch { }
+                  if (string.Equals(installedVersion, version, StringComparison.Ordinal))
+                  {
+                      WriteLaunchLog("VEXORIUM model package " + version + " is already installed.");
+                      return;
+                  }
+
+                  if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? packageUri) ||
+                      packageUri.Scheme != Uri.UriSchemeHttps)
+                      throw new Exception("Ссылка на пакет модификаций должна использовать HTTPS.");
+
+                  string zipPath = Path.Combine(Path.GetTempPath(), "Vexorium-Modpack-" + Guid.NewGuid().ToString("N") + ".zip");
+                  string extractPath = Path.Combine(Path.GetTempPath(), "Vexorium-Modpack-Extract-" + Guid.NewGuid().ToString("N"));
+                  string backupPath = finalModsDirectory + ".previous";
+                  try
+                  {
+                      _status.Text = "Скачиваем пакет модификаций VEXORIUM " + version + "…";
+                      using (var response = await client.GetAsync(packageUri, HttpCompletionOption.ResponseHeadersRead))
+                      {
+                          response.EnsureSuccessStatusCode();
+                          await using var input = await response.Content.ReadAsStreamAsync();
+                          await using var output = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                          await input.CopyToAsync(output);
+                      }
+
+                      var packageInfo = new FileInfo(zipPath);
+                      if (!packageInfo.Exists || packageInfo.Length < 1000)
+                          throw new Exception("Пакет модификаций VEXORIUM пуст или скачан не полностью.");
+
+                      string actualHash;
+                      await using (var packageStream = File.OpenRead(zipPath))
+                      {
+                          byte[] hash = await System.Security.Cryptography.SHA256.HashDataAsync(packageStream);
+                          actualHash = Convert.ToHexString(hash);
+                      }
+                      if (!string.Equals(actualHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                          throw new Exception("Пакет модификаций VEXORIUM не прошёл проверку SHA-256.");
+
+                      Directory.CreateDirectory(extractPath);
+                      ZipFile.ExtractToDirectory(zipPath, extractPath, true);
+                      string packageRoot = Directory.Exists(Path.Combine(extractPath, "VEXORIUM"))
+                          ? Path.Combine(extractPath, "VEXORIUM") : extractPath;
+                      if (!Directory.GetFiles(packageRoot, "*", SearchOption.AllDirectories).Any())
+                          throw new Exception("В архиве VEXORIUM нет файлов моделей.");
+
+                      if (Directory.Exists(backupPath))
+                          Directory.Delete(backupPath, true);
+                      if (Directory.Exists(finalModsDirectory))
+                          Directory.Move(finalModsDirectory, backupPath);
+
+                      try
+                      {
+                          Directory.Move(packageRoot, finalModsDirectory);
+                          File.WriteAllText(versionFile, version);
+                          if (Directory.Exists(backupPath))
+                              Directory.Delete(backupPath, true);
+                          WriteLaunchLog("Installed VEXORIUM model package " + version + ".");
+                          _status.Text = "Пакет автомобилей, скинов, аксессуаров и карты обновлён до " + version + ".";
+                      }
+                      catch
+                      {
+                          if (Directory.Exists(finalModsDirectory))
+                              Directory.Delete(finalModsDirectory, true);
+                          if (Directory.Exists(backupPath))
+                              Directory.Move(backupPath, finalModsDirectory);
+                          throw;
+                      }
+                  }
+                  finally
+                  {
+                      try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
+                      try { if (Directory.Exists(extractPath)) Directory.Delete(extractPath, true); } catch { }
                   }
               }
 
@@ -959,8 +1195,14 @@ jobs:
                       }
                   }
 
-                  Directory.CreateDirectory(Path.Combine(modFolder, "VEXORIUM"));
-                  _status.Text = "Mod Loader установлен. Подготавливаем подключение…";
+                  string vexoriumMods = Path.Combine(modFolder, "VEXORIUM");
+                  Directory.CreateDirectory(vexoriumMods);
+                  foreach (string category in new[] {
+                      "Vehicles", "Skins", "Accessories", "Clothing",
+                      "Map", "Buildings", "Textures", "Audio"
+                  })
+                      Directory.CreateDirectory(Path.Combine(vexoriumMods, category));
+                  _status.Text = "Mod Loader установлен. Подготавливаем ресурсы VEXORIUM…";
               }
 
               private async Task DownloadArchiveAsync(string url, string destination, string description)
