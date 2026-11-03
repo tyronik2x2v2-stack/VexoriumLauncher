@@ -527,6 +527,7 @@ jobs:
                       await DownloadAndInstallGtaAsync();
                       return;
                   }
+
                   string nickname = _nickname.Text.Trim();
                   if (nickname.Length < 3 || nickname.Length > 24)
                   {
@@ -534,95 +535,71 @@ jobs:
                       _nickname.Focus();
                       return;
                   }
+
                   _busy = true;
                   RefreshButtons();
                   try
                   {
                       GameInstall.SaveNickname(nickname);
 
-                      string gtaExe = Path.Combine(_gamePath!, "gta_sa.exe");
+                      string gameRoot = Path.GetFullPath(_gamePath!);
+                      string gtaExe = Path.Combine(gameRoot, "gta_sa.exe");
                       if (!File.Exists(gtaExe))
-                          throw new Exception("В выбранной папке не найден gta_sa.exe: " + _gamePath);
+                          throw new Exception("В выбранной папке не найден gta_sa.exe: " + gameRoot);
 
-                      // Install the multiplayer client into the selected GTA folder when it is missing.
+                      // Ensure the classic SA-MP client is installed beside gta_sa.exe.
                       await EnsureSampClientAsync();
 
-                      // Prepare the GTA client for VEXORIUM custom models before launching multiplayer.
+                      // Install/prepare visual mods, but launch the SA-MP client directly.
                       await EnsureModLoaderAsync();
-                      await EnsureOpenMpLauncherAsync();
-                      await EnsureOpenMpClientAsync();
-                      if (!File.Exists(OpenMpExe))
-                          throw new Exception("После загрузки не найден клиент open.mp: " + OpenMpExe);
 
-                      string gameRoot = Path.GetFullPath(_gamePath!);
-                      string sampDllPath = Path.Combine(gameRoot, "samp.dll");
-                      if (!IsValidSampClientDll(sampDllPath))
-                          throw new Exception("Не найден корректный samp.dll рядом с gta_sa.exe. Автоустановка SA-MP не завершилась; мультиплеер не будет запускаться как обычная GTA.");
+                      string sampExe = Path.Combine(gameRoot, "samp.exe");
+                      string sampDll = Path.Combine(gameRoot, "samp.dll");
+                      if (!File.Exists(sampExe) || new FileInfo(sampExe).Length < 100000)
+                          throw new Exception("Не найден рабочий samp.exe рядом с gta_sa.exe. Путь: " + sampExe);
+                      if (!IsValidSampClientDll(sampDll))
+                          throw new Exception("Не найден рабочий samp.dll рядом с gta_sa.exe. Путь: " + sampDll);
 
-                      string ompClientPath = Path.Combine(
-                          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                          "mp.open.launcher", "omp", "omp-client.dll");
-                      if (!File.Exists(ompClientPath) || new FileInfo(ompClientPath).Length < 100000)
-                          throw new Exception("Клиент omp-client.dll отсутствует или повреждён. Повтори запуск, чтобы лаунчер скачал его заново.");
+                      _status.Text = "Запускаем SA-MP и подключаемся к VEXORIUM…";
 
-                      // Record existing GTA processes so that a failed multiplayer injection never leaves a single-player GTA window open.
-                      var existingGtaPids = Process.GetProcessesByName("gta_sa").Select(p => p.Id).ToHashSet();
-
-                      _status.Text = "Запускаем официальный клиент open.mp и проверяем внедрение…";
                       var startInfo = new ProcessStartInfo
                       {
-                          FileName = OpenMpExe,
-                          WorkingDirectory = OpenMpDirectory,
+                          FileName = sampExe,
+                          WorkingDirectory = gameRoot,
                           UseShellExecute = false,
                           CreateNoWindow = false,
                           WindowStyle = ProcessWindowStyle.Normal
                       };
-                      // Official open.mp CLI injects samp.dll and omp-client.dll into gta_sa.exe.
-                      startInfo.ArgumentList.Add("--host");
-                      startInfo.ArgumentList.Add(ServerHost);
-                      startInfo.ArgumentList.Add("--port");
-                      startInfo.ArgumentList.Add(ServerPort);
-                      startInfo.ArgumentList.Add("--name");
+                      startInfo.ArgumentList.Add("-c");
+                      startInfo.ArgumentList.Add("-n");
                       startInfo.ArgumentList.Add(nickname);
-                      startInfo.ArgumentList.Add("--gamepath");
-                      startInfo.ArgumentList.Add(gameRoot);
+                      startInfo.ArgumentList.Add("-h");
+                      startInfo.ArgumentList.Add(ServerHost);
+                      startInfo.ArgumentList.Add("-p");
+                      startInfo.ArgumentList.Add(ServerPort);
 
-                      using var ompProcess = Process.Start(startInfo);
-                      if (ompProcess == null)
-                          throw new Exception("Windows не смог запустить клиент open.mp.");
+                      using var sampProcess = Process.Start(startInfo);
+                      if (sampProcess == null)
+                          throw new Exception("Windows не смог запустить samp.exe.");
 
-                      await ompProcess.WaitForExitAsync();
-                      if (ompProcess.ExitCode != 0)
-                      {
-                          StopNewGameProcesses(existingGtaPids);
-                          string launcherLog = ReadOpenMpLauncherLogTail();
-                          throw new Exception(
-                              "Клиент open.mp не смог подключить GTA к мультиплееру (код " +
-                              ompProcess.ExitCode + "). Обычная GTA была закрыта, чтобы не запускать одиночную игру.\n\n" +
-                              "Лог open.mp:\n" + launcherLog);
-                      }
+                      WriteLaunchLog("SA-MP client started pid=" + sampProcess.Id +
+                          ", host=" + ServerHost + ", port=" + ServerPort +
+                          ", nickname=" + nickname + ", game=" + gameRoot);
 
-                      var gameProcess = await WaitForNewGameProcessAsync(existingGtaPids, TimeSpan.FromSeconds(15));
-                      if (gameProcess == null)
-                      {
-                          string launcherLog = ReadOpenMpLauncherLogTail();
-                          throw new Exception(
-                              "open.mp завершил запуск без работающего процесса gta_sa.exe. Проверь samp.dll и omp-client.dll.\n\n" +
-                              "Лог open.mp:\n" + launcherLog);
-                      }
-
-                      WriteLaunchLog("open.mp injection completed successfully; gta_sa pid=" + gameProcess.Id +
-                          ", host=" + ServerHost + ", port=" + ServerPort + ", nickname=" + nickname);
                       _status.ForeColor = Color.FromArgb(106, 218, 157);
-                      _status.Text = "Клиент open.mp запущен. Проверка мультиплеерного подключения завершена.";
+                      _status.Text = "SA-MP запущен. Подключение к VEXORIUM передано клиенту.";
                   }
                   catch (Exception ex)
                   {
                       _status.ForeColor = Color.FromArgb(255, 145, 145);
-                      _status.Text = "Не удалось запустить open.mp.";
-                      MessageBox.Show("Ошибка open.mp:\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                      _status.Text = "Не удалось запустить SA-MP.";
+                      MessageBox.Show("Ошибка запуска SA-MP:\\n" + ex.Message, "VEXORIUM", MessageBoxButtons.OK, MessageBoxIcon.Error);
                   }
-                  finally { _busy = false; RefreshButtons(); }
+                  finally
+                  {
+                      _busy = false;
+                      RefreshButtons();
+                  }
               }
 
               private async Task DownloadAndInstallGtaAsync()
